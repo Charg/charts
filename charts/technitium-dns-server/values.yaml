@@ -441,7 +441,7 @@ test:
     # -- Image used by the helm test hook that resolves a name, needs a DNS client rather than curl.
     repository: busybox
     # -- Tag of the DNS test image.
-    tag: "1.36"
+    tag: "1.38"
     # -- Pull policy of the DNS test image.
     pullPolicy: IfNotPresent
   recursion:
