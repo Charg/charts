@@ -1,0 +1,30 @@
+{{- if .Values.test.recursion.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "technitium-dns-server.fullname" . }}-test-recursion"
+  labels:
+    {{- include "technitium-dns-server.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "1"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: resolve
+      image: "{{ .Values.test.dnsImage.repository }}:{{ .Values.test.dnsImage.tag }}"
+      imagePullPolicy: {{ .Values.test.dnsImage.pullPolicy }}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          # Needs egress to the public internet, which is why this pod is gated behind a value:
+          # an air-gapped run keeps the rest of the suite green by leaving it disabled.
+          nslookup {{ .Values.test.recursion.queryName | quote }} \
+            "{{ include "technitium-dns-server.fullname" . }}" > /tmp/answer
+          cat /tmp/answer
+          # busybox nslookup exits 0 on NXDOMAIN, so assert an address was actually returned
+          # rather than relying on the exit status.
+          grep -A99 'Name:' /tmp/answer | grep -Eq '^Address: +[0-9a-fA-F:.]+'
+{{- end }}

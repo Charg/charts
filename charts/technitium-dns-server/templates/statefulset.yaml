@@ -1,0 +1,235 @@
+{{- if and .Values.auth.adminPassword .Values.auth.existingSecret.name }}
+{{- fail "auth: set only one of adminPassword or existingSecret.name, not both" }}
+{{- end }}
+{{- if and .Values.sso.clientSecret .Values.sso.existingSecret.name }}
+{{- fail "sso: set only one of clientSecret or existingSecret.name, not both" }}
+{{- end }}
+{{- if and .Values.recursion.mode (not (has .Values.recursion.mode (list "Allow" "Deny" "AllowOnlyForPrivateNetworks" "UseSpecifiedNetworkACL"))) }}
+{{- fail (printf "recursion.mode must be one of Allow, Deny, AllowOnlyForPrivateNetworks, UseSpecifiedNetworkACL, got %q" .Values.recursion.mode) }}
+{{- end }}
+{{- if and (gt (len .Values.recursion.networkAcl) 0) (ne .Values.recursion.mode "UseSpecifiedNetworkACL") }}
+{{- fail "recursion.networkAcl is only valid when recursion.mode is \"UseSpecifiedNetworkACL\"" }}
+{{- end }}
+{{- if and .Values.forwarders.protocol (not (has .Values.forwarders.protocol (list "Udp" "Tcp" "Tls" "Https" "HttpsJson"))) }}
+{{- fail (printf "forwarders.protocol must be one of Udp, Tcp, Tls, Https, HttpsJson, got %q" .Values.forwarders.protocol) }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "technitium-dns-server.fullname" . }}
+  labels:
+    {{- include "technitium-dns-server.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "technitium-dns-server.headlessServiceName" . }}
+  replicas: {{ .Values.replicaCount }}
+  updateStrategy:
+    type: {{ .Values.updateStrategy.type }}
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: {{ .Values.persistence.retentionPolicy.whenDeleted }}
+    whenScaled: {{ .Values.persistence.retentionPolicy.whenScaled }}
+  selector:
+    matchLabels:
+      {{- include "technitium-dns-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "technitium-dns-server.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "technitium-dns-server.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- include "technitium-dns-server.env" . | nindent 12 }}
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: dns-udp
+              containerPort: {{ .Values.service.dnsPort }}
+              protocol: UDP
+            - name: dns-tcp
+              containerPort: {{ .Values.service.dnsPort }}
+              protocol: TCP
+            - name: web
+              containerPort: {{ .Values.service.webPort }}
+              protocol: TCP
+            {{- if .Values.webService.enableHttps }}
+            - name: web-https
+              containerPort: {{ .Values.service.httpsPort }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.optionalListeners.dnsOverTls.enabled }}
+            - name: dns-tls
+              containerPort: 853
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.optionalListeners.dnsOverQuic.enabled }}
+            - name: dns-quic
+              containerPort: 853
+              protocol: UDP
+            {{- end }}
+            {{- if .Values.optionalListeners.dnsOverHttps.enabled }}
+            - name: dns-https
+              containerPort: 443
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.optionalListeners.dnsOverHttp3.enabled }}
+            - name: dns-http3
+              containerPort: 443
+              protocol: UDP
+            {{- end }}
+            {{- if .Values.optionalListeners.dnsOverHttpPort80.enabled }}
+            - name: dns-http-80
+              containerPort: 80
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.optionalListeners.dnsOverHttpPort8053.enabled }}
+            - name: dns-http-8053
+              containerPort: 8053
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.optionalListeners.dhcp.enabled }}
+            - name: dhcp
+              containerPort: 67
+              protocol: UDP
+            {{- end }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.startupProbe.path }}
+              port: {{ .Values.startupProbe.port }}
+            initialDelaySeconds: {{ .Values.startupProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.path }}
+              port: {{ .Values.readinessProbe.port }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+          livenessProbe:
+            # TCP-only: a wedged resolver that stops answering queries must fail this check even
+            # if the web console (a separate process path) is still responding to readinessProbe.
+            tcpSocket:
+              port: {{ .Values.livenessProbe.port }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- if or .Values.auth.adminPassword .Values.auth.existingSecret.name }}
+            - name: admin-password
+              mountPath: {{ include "technitium-dns-server.adminPasswordMountPath" . }}
+              readOnly: true
+            {{- end }}
+            {{- if or .Values.sso.clientSecret .Values.sso.existingSecret.name }}
+            - name: sso-client-secret
+              mountPath: {{ include "technitium-dns-server.ssoClientSecretMountPath" . }}
+              readOnly: true
+            {{- end }}
+      {{- if or (or .Values.auth.adminPassword .Values.auth.existingSecret.name) (or .Values.sso.clientSecret .Values.sso.existingSecret.name) }}
+      volumes:
+        {{- if or .Values.auth.adminPassword .Values.auth.existingSecret.name }}
+        - name: admin-password
+          secret:
+            secretName: {{ include "technitium-dns-server.adminPasswordSecretName" . }}
+            # Technitium reads this file at container start; mode 0400 keeps it unreadable by
+            # anyone but the (root, per the image's design) process that opens it.
+            defaultMode: 0400
+            items:
+              - key: {{ include "technitium-dns-server.adminPasswordSecretKey" . }}
+                path: password
+        {{- end }}
+        {{- if or .Values.sso.clientSecret .Values.sso.existingSecret.name }}
+        - name: sso-client-secret
+          secret:
+            secretName: {{ include "technitium-dns-server.ssoClientSecretName" . }}
+            defaultMode: 0400
+            items:
+              - key: {{ include "technitium-dns-server.ssoClientSecretKey" . }}
+                path: client-secret
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.affinity }}
+      affinity:
+        {{- toYaml .Values.affinity | nindent 8 }}
+      {{- else if .Values.podAntiAffinity }}
+      affinity:
+        podAntiAffinity:
+          {{- if eq .Values.podAntiAffinity "required" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  {{- include "technitium-dns-server.selectorLabels" . | nindent 18 }}
+          {{- else if eq .Values.podAntiAffinity "preferred" }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "technitium-dns-server.selectorLabels" . | nindent 20 }}
+          {{- else }}
+          {{- fail (printf "podAntiAffinity must be \"required\", \"preferred\" or \"\", got %q" .Values.podAntiAffinity) }}
+          {{- end }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}

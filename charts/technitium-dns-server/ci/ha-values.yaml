@@ -1,0 +1,10 @@
+---
+# Three replicas on three distinct nodes, which is what the kind topology is sized for.
+# hack/ha-assert.sh checks the node spread and the per-replica volumes from outside the
+# cluster, because a test pod cannot observe scheduling or storage topology.
+replicaCount: 3
+perReplicaService:
+  type: ClusterIP
+podAntiAffinity: required
+auth:
+  adminPassword: ci-ha-Passw0rd

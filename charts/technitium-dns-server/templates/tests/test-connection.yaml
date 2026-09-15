@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "technitium-dns-server.fullname" . }}-test-connection"
+  labels:
+    {{- include "technitium-dns-server.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "0"
+spec:
+  restartPolicy: Never
+  containers:
+    - name: status-check
+      image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
+      imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          check() {
+            # The status endpoint requires no auth. Check the JSON body reports "ok" rather than
+            # trusting a bare HTTP 200, since the API returns 200 with an "error" status too.
+            response="$(curl -sf --max-time 10 "http://$1:{{ .Values.service.webPort }}{{ .Values.readinessProbe.path }}")"
+            echo "$1 -> $response"
+            echo "$response" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"'
+          }
+
+          check "{{ include "technitium-dns-server.fullname" . }}"
+
+          # Every replica individually, addressed through the headless Service. The client-facing
+          # Service load balances, so hitting it N times does not prove all N replicas are healthy.
+          {{- $fullname := include "technitium-dns-server.fullname" . }}
+          {{- $headless := include "technitium-dns-server.headlessServiceName" . }}
+          {{- range $i := until (int .Values.replicaCount) }}
+          check "{{ $fullname }}-{{ $i }}.{{ $headless }}"
+          {{- end }}

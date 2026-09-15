@@ -1,0 +1,196 @@
+---
+suite: test service
+templates:
+  - service.yaml
+tests:
+  - it: is a ClusterIP Service by default
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+
+  - it: overrides the service type
+    set:
+      service.type: LoadBalancer
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+
+  - it: exposes DNS and web ports
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-udp
+            port: 53
+            targetPort: dns-udp
+            protocol: UDP
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-tcp
+            port: 53
+            targetPort: dns-tcp
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: web
+            port: 5380
+            targetPort: web
+            protocol: TCP
+
+  - it: overrides the DNS and web ports
+    set:
+      service.dnsPort: 5353
+      service.webPort: 8080
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-udp
+            port: 5353
+            targetPort: dns-udp
+            protocol: UDP
+      - contains:
+          path: spec.ports
+          content:
+            name: web
+            port: 8080
+            targetPort: web
+            protocol: TCP
+
+  - it: exposes the HTTPS console port by default
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: web-https
+            port: 53443
+            targetPort: web-https
+            protocol: TCP
+
+  - it: omits the HTTPS console port when disabled
+    set:
+      webService.enableHttps: false
+    asserts:
+      - notExists:
+          path: spec.ports[?(@.name=="web-https")]
+
+  - it: omits every optional listener port by default
+    asserts:
+      - notExists:
+          path: spec.ports[?(@.name=="dns-tls")]
+      - notExists:
+          path: spec.ports[?(@.name=="dns-quic")]
+      - notExists:
+          path: spec.ports[?(@.name=="dns-https")]
+      - notExists:
+          path: spec.ports[?(@.name=="dns-http3")]
+      - notExists:
+          path: spec.ports[?(@.name=="dns-http-80")]
+      - notExists:
+          path: spec.ports[?(@.name=="dns-http-8053")]
+      - notExists:
+          path: spec.ports[?(@.name=="dhcp")]
+
+  - it: exposes every optional listener port when enabled
+    set:
+      optionalListeners:
+        dnsOverTls:
+          enabled: true
+        dnsOverQuic:
+          enabled: true
+        dnsOverHttps:
+          enabled: true
+        dnsOverHttp3:
+          enabled: true
+        dnsOverHttpPort80:
+          enabled: true
+        dnsOverHttpPort8053:
+          enabled: true
+        dhcp:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-tls
+            port: 853
+            targetPort: dns-tls
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-quic
+            port: 853
+            targetPort: dns-quic
+            protocol: UDP
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-https
+            port: 443
+            targetPort: dns-https
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-http3
+            port: 443
+            targetPort: dns-http3
+            protocol: UDP
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-http-80
+            port: 80
+            targetPort: dns-http-80
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: dns-http-8053
+            port: 8053
+            targetPort: dns-http-8053
+            protocol: TCP
+      - contains:
+          path: spec.ports
+          content:
+            name: dhcp
+            port: 67
+            targetPort: dhcp
+            protocol: UDP
+
+  - it: omits externalTrafficPolicy for the default ClusterIP type
+    asserts:
+      - isNull:
+          path: spec.externalTrafficPolicy
+
+  - it: preserves the client source IP on a LoadBalancer Service
+    set:
+      service.type: LoadBalancer
+    asserts:
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Local
+
+  - it: preserves the client source IP on a NodePort Service
+    set:
+      service.type: NodePort
+    asserts:
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Local
+
+  - it: lets externalTrafficPolicy be set to Cluster
+    set:
+      service.type: LoadBalancer
+      service.externalTrafficPolicy: Cluster
+    asserts:
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Cluster

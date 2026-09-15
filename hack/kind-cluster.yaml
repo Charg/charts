@@ -1,0 +1,11 @@
+---
+# One control plane and three workers. Three is the minimum that makes
+# "replicas land on distinct nodes" a meaningful assertion, and is about all a
+# 4 vCPU / 16 GB GitHub-hosted runner will carry.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker

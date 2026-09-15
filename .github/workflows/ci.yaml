@@ -1,0 +1,60 @@
+---
+name: ci
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-unit:
+    name: lint and unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # ct lint diffs changed charts against the target branch; a shallow
+          # checkout has no history for it to diff against.
+          fetch-depth: 0
+
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Lint charts
+        run: nix develop -c just lint
+
+      - name: Run unit tests
+        run: nix develop -c just unit
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # ct install diffs changed charts against the target branch; a shallow
+          # checkout has no history for it to diff against.
+          fetch-depth: 0
+
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Create kind cluster
+        run: nix develop -c just cluster-up
+
+      - name: Run integration suite
+        run: nix develop -c just e2e
+
+      - name: Delete kind cluster
+        if: always()
+        run: nix develop -c just cluster-down

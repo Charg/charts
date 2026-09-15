@@ -1,0 +1,20 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{- if and (ne (.Values.podDisruptionBudget.minAvailable | toString) "") (ne (.Values.podDisruptionBudget.maxUnavailable | toString) "") }}
+{{- fail "podDisruptionBudget: set only one of minAvailable or maxUnavailable, not both" }}
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "technitium-dns-server.fullname" . }}
+  labels:
+    {{- include "technitium-dns-server.labels" . | nindent 4 }}
+spec:
+  {{- if ne (.Values.podDisruptionBudget.minAvailable | toString) "" }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "technitium-dns-server.selectorLabels" . | nindent 6 }}
+{{- end }}

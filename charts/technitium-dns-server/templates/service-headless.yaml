@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "technitium-dns-server.headlessServiceName" . }}
+  labels:
+    {{- include "technitium-dns-server.labels" . | nindent 4 }}
+spec:
+  # StatefulSet requires a headless governing Service (clusterIP: None) to mint the stable
+  # per-pod DNS records it uses for network identity; this Service is not meant for client traffic.
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: dns-udp
+      port: {{ .Values.service.dnsPort }}
+      targetPort: dns-udp
+      protocol: UDP
+    - name: dns-tcp
+      port: {{ .Values.service.dnsPort }}
+      targetPort: dns-tcp
+      protocol: TCP
+    - name: web
+      port: {{ .Values.service.webPort }}
+      targetPort: web
+      protocol: TCP
+    {{- if .Values.webService.enableHttps }}
+    - name: web-https
+      port: {{ .Values.service.httpsPort }}
+      targetPort: web-https
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.optionalListeners.dnsOverTls.enabled }}
+    - name: dns-tls
+      port: 853
+      targetPort: dns-tls
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.optionalListeners.dnsOverQuic.enabled }}
+    - name: dns-quic
+      port: 853
+      targetPort: dns-quic
+      protocol: UDP
+    {{- end }}
+    {{- if .Values.optionalListeners.dnsOverHttps.enabled }}
+    - name: dns-https
+      port: 443
+      targetPort: dns-https
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.optionalListeners.dnsOverHttp3.enabled }}
+    - name: dns-http3
+      port: 443
+      targetPort: dns-http3
+      protocol: UDP
+    {{- end }}
+    {{- if .Values.optionalListeners.dnsOverHttpPort80.enabled }}
+    - name: dns-http-80
+      port: 80
+      targetPort: dns-http-80
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.optionalListeners.dnsOverHttpPort8053.enabled }}
+    - name: dns-http-8053
+      port: 8053
+      targetPort: dns-http-8053
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.optionalListeners.dhcp.enabled }}
+    - name: dhcp
+      port: 67
+      targetPort: dhcp
+      protocol: UDP
+    {{- end }}
+  selector:
+    {{- include "technitium-dns-server.selectorLabels" . | nindent 4 }}

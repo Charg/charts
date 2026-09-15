@@ -1,0 +1,80 @@
+---
+name: release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'charts/**'
+  workflow_dispatch: {}
+
+concurrency:
+  # Queue rather than cancel: a signed push half-way through must run to completion, not be
+  # killed mid-digest by a second push to main.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    outputs:
+      charts: ${{ steps.plan.outputs.charts }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Decide which charts need publishing
+        id: plan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: nix develop -c just release-plan
+
+  publish:
+    name: publish
+    needs: plan
+    if: needs.plan.outputs.charts != '' && needs.plan.outputs.charts != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        entry: ${{ fromJSON(needs.plan.outputs.charts) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Log in to ghcr.io
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: nix develop -c hack/registry-login.sh
+
+      - name: Package, push, sign and verify
+        id: publish
+        run: nix develop -c hack/release-publish.sh ${{ matrix.entry.path }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.publish.outputs.ref }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ steps.publish.outputs.chart }}-${{ steps.publish.outputs.version }}
+          name: ${{ steps.publish.outputs.chart }} ${{ steps.publish.outputs.version }}
+          generate_release_notes: true

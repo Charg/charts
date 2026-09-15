@@ -1,0 +1,8 @@
+---
+# Single replica, everything at its defaults except what kind cannot provide.
+# kind has no LoadBalancer controller, so a LoadBalancer Service never gets an address
+# and ct install would block until it timed out.
+perReplicaService:
+  type: ClusterIP
+auth:
+  adminPassword: ci-default-Passw0rd

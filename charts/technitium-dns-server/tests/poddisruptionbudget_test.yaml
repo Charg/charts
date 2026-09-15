@@ -1,0 +1,47 @@
+---
+suite: test poddisruptionbudget
+templates:
+  - poddisruptionbudget.yaml
+tests:
+  - it: is a PodDisruptionBudget with maxUnavailable 1 by default
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - notExists:
+          path: spec.minAvailable
+
+  - it: renders nothing when disabled
+    set:
+      podDisruptionBudget.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: switches to minAvailable when maxUnavailable is blanked
+    set:
+      podDisruptionBudget.maxUnavailable: ""
+      podDisruptionBudget.minAvailable: 2
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 2
+      - notExists:
+          path: spec.maxUnavailable
+
+  - it: fails the template when both minAvailable and maxUnavailable are set
+    set:
+      podDisruptionBudget.minAvailable: 2
+    asserts:
+      - failedTemplate:
+          errorMessage: "podDisruptionBudget: set only one of minAvailable or maxUnavailable, not both"
+
+  - it: selects the chart's pods
+    asserts:
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: technitium-dns-server
+            app.kubernetes.io/instance: RELEASE-NAME

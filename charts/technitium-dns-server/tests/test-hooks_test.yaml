@@ -1,0 +1,67 @@
+---
+suite: test hooks
+templates:
+  - templates/tests/test-connection.yaml
+  - templates/tests/test-recursion.yaml
+tests:
+  - it: keeps the status hook clear of the replicas' required anti-affinity
+    templates:
+      - templates/tests/test-connection.yaml
+    set:
+      replicaCount: 3
+      podAntiAffinity: required
+    asserts:
+      # Carrying the selector labels would make the hook pod match the replicas' own
+      # anti-affinity term, leaving it Pending on every node already running a replica.
+      - isNull:
+          path: metadata.labels["app.kubernetes.io/name"]
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: test
+
+  - it: keeps the recursion hook clear of the replicas' required anti-affinity
+    templates:
+      - templates/tests/test-recursion.yaml
+    set:
+      replicaCount: 3
+      podAntiAffinity: required
+      test.recursion.enabled: true
+    asserts:
+      - isNull:
+          path: metadata.labels["app.kubernetes.io/name"]
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: test
+
+  - it: checks every replica individually, not just the load balanced Service
+    templates:
+      - templates/tests/test-connection.yaml
+    set:
+      replicaCount: 3
+    asserts:
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'check "RELEASE-NAME-technitium-dns-server-0\.RELEASE-NAME-technitium-dns-server-headless"'
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'check "RELEASE-NAME-technitium-dns-server-2\.RELEASE-NAME-technitium-dns-server-headless"'
+
+  - it: omits the recursion hook by default so an air-gapped run stays green
+    templates:
+      - templates/tests/test-recursion.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the recursion hook when explicitly enabled
+    templates:
+      - templates/tests/test-recursion.yaml
+    set:
+      test.recursion.enabled: true
+      test.recursion.queryName: example.net
+    asserts:
+      - hasDocuments:
+          count: 1
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'nslookup "example\.net"'

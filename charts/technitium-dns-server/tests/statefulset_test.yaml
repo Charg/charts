@@ -1,0 +1,266 @@
+---
+suite: test statefulset
+templates:
+  - statefulset.yaml
+tests:
+  - it: is a StatefulSet
+    asserts:
+      - isKind:
+          of: StatefulSet
+
+  - it: defaults to one replica
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  - it: sets replicas from values
+    set:
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: references the headless governing service
+    asserts:
+      - equal:
+          path: spec.serviceName
+          value: RELEASE-NAME-technitium-dns-server-headless
+
+  - it: defaults the image tag to the chart appVersion
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/technitium/dns-server:15.4.0
+
+  - it: overrides the image tag from values
+    set:
+      image.tag: "15.3.0"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/technitium/dns-server:15.3.0
+
+  - it: mounts the data volume at /etc/dns
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: data
+            mountPath: /etc/dns
+
+  - it: renders the volumeClaimTemplate with default size, storageClass and accessModes
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].metadata.name
+          value: data
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.accessModes
+          value:
+            - ReadWriteOnce
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 1Gi
+      - notExists:
+          path: spec.volumeClaimTemplates[0].spec.storageClassName
+
+  - it: overrides the volumeClaimTemplate size, storageClass and accessModes
+    set:
+      persistence.size: 10Gi
+      persistence.storageClass: fast-ssd
+      persistence.accessModes:
+        - ReadWriteOnce
+        - ReadOnlyMany
+    asserts:
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 10Gi
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.storageClassName
+          value: fast-ssd
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.accessModes
+          value:
+            - ReadWriteOnce
+            - ReadOnlyMany
+
+  - it: renders default readiness and liveness probes
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/status
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 5380
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
+          value: 53
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /api/status
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.port
+          value: 5380
+
+  - it: overrides the readiness and liveness probe path and port
+    set:
+      readinessProbe.path: /healthz
+      readinessProbe.port: 8080
+      livenessProbe.port: 8053
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /healthz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 8080
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
+          value: 8053
+
+  - it: omits the startup probe when disabled
+    set:
+      startupProbe.enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+
+  - it: exposes DNS and web container ports
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-udp
+            containerPort: 53
+            protocol: UDP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-tcp
+            containerPort: 53
+            protocol: TCP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: web
+            containerPort: 5380
+            protocol: TCP
+
+  - it: mounts the data volume at the configured mountPath
+    set:
+      persistence.mountPath: /data/technitium
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: data
+            mountPath: /data/technitium
+
+  - it: defaults the PVC retention policy to Retain for both fields
+    asserts:
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy.whenDeleted
+          value: Retain
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy.whenScaled
+          value: Retain
+
+  - it: overrides the PVC retention policy
+    set:
+      persistence.retentionPolicy.whenDeleted: Delete
+      persistence.retentionPolicy.whenScaled: Delete
+    asserts:
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy.whenDeleted
+          value: Delete
+      - equal:
+          path: spec.persistentVolumeClaimRetentionPolicy.whenScaled
+          value: Delete
+
+  - it: defaults the update strategy to RollingUpdate
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: RollingUpdate
+
+  - it: overrides the update strategy to OnDelete
+    set:
+      updateStrategy.type: OnDelete
+    asserts:
+      - equal:
+          path: spec.updateStrategy.type
+          value: OnDelete
+
+  - it: defaults to required anti-affinity on kubernetes.io/hostname
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity
+          value:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: technitium-dns-server
+                    app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: switches to preferred anti-affinity
+    set:
+      podAntiAffinity: preferred
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity
+          value:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: technitium-dns-server
+                      app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: disables generated anti-affinity when podAntiAffinity is empty
+    set:
+      podAntiAffinity: ""
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity
+
+  - it: lets a user-supplied affinity override the generated anti-affinity entirely
+    set:
+      podAntiAffinity: required
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values:
+                      - amd64
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity
+          value:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/arch
+                        operator: In
+                        values:
+                          - amd64
+
+  - it: omits priorityClassName by default
+    asserts:
+      - isNull:
+          path: spec.template.spec.priorityClassName
+
+  - it: sets priorityClassName when supplied
+    set:
+      priorityClassName: system-cluster-critical
+    asserts:
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: system-cluster-critical

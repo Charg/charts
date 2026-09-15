@@ -1,0 +1,103 @@
+{{- if .Values.perReplicaService.enabled }}
+{{- $root := . }}
+{{- $fullname := include "technitium-dns-server.fullname" . }}
+{{- $replicaCount := .Values.replicaCount | int }}
+{{- $addresses := .Values.perReplicaService.loadBalancerIPs }}
+{{- $annotationsList := .Values.perReplicaService.annotations }}
+{{- if gt (len $addresses) $replicaCount }}
+{{- fail (printf "perReplicaService.loadBalancerIPs has %d entries but replicaCount is %d; not silently truncated" (len $addresses) $replicaCount) }}
+{{- end }}
+{{- range $i := until $replicaCount }}
+{{- $podName := printf "%s-%d" $fullname $i }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $podName }}
+  labels:
+    {{- include "technitium-dns-server.labels" $root | nindent 4 }}
+  {{- if lt $i (len $annotationsList) }}
+  {{- with (index $annotationsList $i) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+spec:
+  # Selects the single pod at this ordinal via the StatefulSet-assigned pod-name label, giving
+  # that one replica a Service (and address) of its own instead of load-balancing across all of them.
+  type: {{ $root.Values.perReplicaService.type }}
+  {{- if and (eq $root.Values.perReplicaService.type "LoadBalancer") (lt $i (len $addresses)) }}
+  loadBalancerIP: {{ index $addresses $i }}
+  {{- end }}
+  {{- with $root.Values.perReplicaService.loadBalancerClass }}
+  loadBalancerClass: {{ . }}
+  {{- end }}
+  {{- if and $root.Values.perReplicaService.externalTrafficPolicy (or (eq $root.Values.perReplicaService.type "LoadBalancer") (eq $root.Values.perReplicaService.type "NodePort")) }}
+  externalTrafficPolicy: {{ $root.Values.perReplicaService.externalTrafficPolicy }}
+  {{- end }}
+  ports:
+    - name: dns-udp
+      port: {{ $root.Values.service.dnsPort }}
+      targetPort: dns-udp
+      protocol: UDP
+    - name: dns-tcp
+      port: {{ $root.Values.service.dnsPort }}
+      targetPort: dns-tcp
+      protocol: TCP
+    - name: web
+      port: {{ $root.Values.service.webPort }}
+      targetPort: web
+      protocol: TCP
+    {{- if $root.Values.webService.enableHttps }}
+    - name: web-https
+      port: {{ $root.Values.service.httpsPort }}
+      targetPort: web-https
+      protocol: TCP
+    {{- end }}
+    {{- if $root.Values.optionalListeners.dnsOverTls.enabled }}
+    - name: dns-tls
+      port: 853
+      targetPort: dns-tls
+      protocol: TCP
+    {{- end }}
+    {{- if $root.Values.optionalListeners.dnsOverQuic.enabled }}
+    - name: dns-quic
+      port: 853
+      targetPort: dns-quic
+      protocol: UDP
+    {{- end }}
+    {{- if $root.Values.optionalListeners.dnsOverHttps.enabled }}
+    - name: dns-https
+      port: 443
+      targetPort: dns-https
+      protocol: TCP
+    {{- end }}
+    {{- if $root.Values.optionalListeners.dnsOverHttp3.enabled }}
+    - name: dns-http3
+      port: 443
+      targetPort: dns-http3
+      protocol: UDP
+    {{- end }}
+    {{- if $root.Values.optionalListeners.dnsOverHttpPort80.enabled }}
+    - name: dns-http-80
+      port: 80
+      targetPort: dns-http-80
+      protocol: TCP
+    {{- end }}
+    {{- if $root.Values.optionalListeners.dnsOverHttpPort8053.enabled }}
+    - name: dns-http-8053
+      port: 8053
+      targetPort: dns-http-8053
+      protocol: TCP
+    {{- end }}
+    {{- if $root.Values.optionalListeners.dhcp.enabled }}
+    - name: dhcp
+      port: 67
+      targetPort: dhcp
+      protocol: UDP
+    {{- end }}
+  selector:
+    {{- include "technitium-dns-server.selectorLabels" $root | nindent 4 }}
+    statefulset.kubernetes.io/pod-name: {{ $podName }}
+{{- end }}
+{{- end }}

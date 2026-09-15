@@ -1,0 +1,97 @@
+---
+suite: test ingress
+templates:
+  - ingress.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders an Ingress when enabled, targeting only the web Service port
+    set:
+      ingress:
+        enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.rules[0].host
+          value: technitium.local
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: ImplementationSpecific
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.name
+          value: web
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: RELEASE-NAME-technitium-dns-server
+
+  - it: sets the ingressClassName when configured
+    set:
+      ingress:
+        enabled: true
+        className: nginx
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+
+  - it: renders multiple hosts and paths
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: dns.example.com
+            paths:
+              - path: /
+                pathType: Prefix
+          - host: dns2.example.com
+            paths:
+              - path: /admin
+                pathType: Exact
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: dns.example.com
+      - equal:
+          path: spec.rules[1].host
+          value: dns2.example.com
+      - equal:
+          path: spec.rules[1].http.paths[0].path
+          value: /admin
+      - equal:
+          path: spec.rules[1].http.paths[0].pathType
+          value: Exact
+
+  - it: renders tls blocks
+    set:
+      ingress:
+        enabled: true
+        tls:
+          - secretName: dns-example-com-tls
+            hosts:
+              - dns.example.com
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: dns-example-com-tls
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: dns.example.com
+
+  - it: never targets a DNS port
+    set:
+      ingress:
+        enabled: true
+    asserts:
+      - notEqual:
+          path: spec.rules[0].http.paths[0].backend.service.port.name
+          value: dns-tcp
+      - notEqual:
+          path: spec.rules[0].http.paths[0].backend.service.port.name
+          value: dns-udp

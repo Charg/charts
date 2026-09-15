@@ -1,0 +1,32 @@
+---
+suite: test headless service
+templates:
+  - service-headless.yaml
+tests:
+  - it: is a headless Service
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.clusterIP
+          value: None
+
+  - it: is named after the fullname with a -headless suffix
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-technitium-dns-server-headless
+
+  - it: publishes addresses for not-yet-ready pods so peers can discover each other during startup
+    asserts:
+      - equal:
+          path: spec.publishNotReadyAddresses
+          value: true
+
+  - it: selects pods by the chart's selector labels
+    asserts:
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: technitium-dns-server
+            app.kubernetes.io/instance: RELEASE-NAME

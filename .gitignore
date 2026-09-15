@@ -35,6 +35,11 @@ kubeconfig*
 *.pem
 cosign.key
 
+# nix
+result
+result-*
+.direnv/
+
 # Misc build output
 dist/
 tmp/

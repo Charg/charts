@@ -1,0 +1,452 @@
+---
+# Default values for technitium-dns-server.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- Number of StatefulSet replicas. Each replica owns its own PVC via volumeClaimTemplates.
+# Technitium keeps per-node state under /etc/dns with no shared-filesystem design, so replicas
+# are independent DNS servers, not a coordinated cluster; scale for redundancy, not sharding.
+replicaCount: 1
+
+image:
+  # -- Image repository.
+  repository: docker.io/technitium/dns-server
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  tag: ""
+
+# -- References to Secrets holding credentials for a private image registry.
+imagePullSecrets: []
+
+# -- Overrides the chart name portion of generated resource names.
+nameOverride: ""
+
+# -- Overrides the fully generated resource name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the pod.
+  create: true
+  # -- Automount the ServiceAccount API token into the pod.
+  automount: true
+  # -- Annotations added to the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount to use. Generated from the fullname template when empty and create is true.
+  name: ""
+
+# -- Annotations added to the pod.
+podAnnotations: {}
+
+# -- Labels added to the pod.
+podLabels: {}
+
+# -- Pod-level securityContext. The image has no USER directive and runs as root by design, so it
+# can bind port 53 without NET_BIND_SERVICE and needs no fsGroup handling to write the PVC.
+podSecurityContext: {}
+
+# -- Container-level securityContext.
+securityContext: {}
+
+service:
+  # -- Service type for the DNS and web console ports.
+  type: ClusterIP
+  # -- Port the DNS service listens on, both UDP and TCP.
+  dnsPort: 53
+  # -- Port the web console listens on (plain HTTP). Also sent to the container as
+  # DNS_SERVER_WEB_SERVICE_HTTP_PORT so the app binds the same port this Service and the
+  # container spec declare; there is no separate webService value for it, precisely so the two
+  # can never drift apart. Read only on first boot: see webService.enableHttps below. First-boot only.
+  webPort: 5380
+  # -- Port the web console listens on over HTTPS, exposed on the container and every Service
+  # only while webService.enableHttps is true (the default). Also sent to the container as
+  # DNS_SERVER_WEB_SERVICE_HTTPS_PORT for the same reason webPort is: one value, so the Service
+  # and the app's actual bind port cannot disagree. First-boot only.
+  httpsPort: 53443
+  # -- Annotations added to the Service.
+  annotations: {}
+  # -- externalTrafficPolicy for the aggregate Service. Only valid for LoadBalancer and NodePort,
+  # so it is emitted only for those types and ignored for ClusterIP. Local keeps the client source
+  # IP intact, which DNS access control lists and query logs both depend on; the cost is that a
+  # node with no local replica blackholes traffic, so pair it with the default anti-affinity spread.
+  externalTrafficPolicy: Local
+
+perReplicaService:
+  # -- Create one Service per StatefulSet replica, each selecting a single pod via the
+  # statefulset.kubernetes.io/pod-name label. Technitium's native clustering (v14+) identifies
+  # peers by IP address: the cluster-init and cluster-join APIs take primaryNodeIpAddresses,
+  # secondaryNodeIpAddresses and primaryNodeIpAddress as literal addresses, not hostnames. Pod IPs
+  # are not stable across restarts, so each replica needs an address of its own.
+  enabled: true
+  # -- Service type for each per-replica Service. kind and k3d have no LoadBalancer implementation;
+  # integration tests should override this to ClusterIP.
+  type: LoadBalancer
+  # -- Index-aligned addresses, one per replica: index 0 is requested for the pod with ordinal 0,
+  # and so on. loadBalancerIP is deprecated upstream, but it remains the portable way MetalLB and
+  # most cloud load balancer controllers honor a requested address; use annotations below where the
+  # provider prefers those instead. Only takes effect when type is LoadBalancer. A list longer than
+  # replicaCount fails the template (a mismatched list is an operator error); a shorter list leaves
+  # the remaining Services without a requested address rather than failing.
+  loadBalancerIPs: []
+  # -- loadBalancerClass for each per-replica Service, for clusters running more than one load
+  # balancer implementation. Only takes effect when type is LoadBalancer.
+  loadBalancerClass: ""
+  # -- Index-aligned annotations, one map per replica (e.g. MetalLB's
+  # metallb.universe.tf/address-pool is selected per Service via annotation). A replica beyond the
+  # list length gets no extra annotations.
+  annotations: []
+  # -- externalTrafficPolicy for each per-replica Service. Only valid for LoadBalancer and NodePort
+  # types (ignored otherwise). Local preserves the querying client's real source address, which
+  # recursion ACLs and per-client policy depend on; the cost is that it drops traffic landing on a
+  # node with no local endpoint for that Service, but a per-replica Service only ever has one
+  # endpoint to begin with, so that is exactly the routing this design wants.
+  externalTrafficPolicy: Local
+
+# Every value below this point that documents a DNS_SERVER_* variable is bootstrap
+# configuration, not desired state. Technitium's Docker image reads these environment variables
+# only when the DNS config file does not yet exist, i.e. the very first time a replica boots
+# against an empty /etc/dns volume. Changing one of these values and running `helm upgrade` does
+# NOT reconfigure a server that has already initialized; the change only takes effect on a
+# replica that starts against a fresh (empty or wiped) volume. Reconfigure a running server
+# through its web console or HTTP API instead. See README.md and the NOTES.txt printed after
+# install for the same warning.
+
+server:
+  # -- DNS_SERVER_DOMAIN: FQDN advertised for this server. Unset leaves Technitium's own default.
+  # First-boot only.
+  domain: ""
+  # -- DNS_SERVER_PREFER_IPV6 (Boolean): prefer IPv6 for outbound recursive resolution when both
+  # address families are available. Unset leaves Technitium's own default. First-boot only.
+  preferIPv6: null
+
+# -- Credentials mounted into the container as files, never as environment variables: upstream
+# provides DNS_SERVER_ADMIN_PASSWORD_FILE specifically so the password never appears in the
+# process environment (e.g. `kubectl exec ... env`, or a crash dump). Supports either a chart
+# generated Secret from adminPassword, or an operator-supplied existingSecret; setting both fails
+# the template. Leaving both unset renders no _FILE variable at all, which falls back to
+# whatever default credentials Technitium itself creates on first boot. First-boot only.
+auth:
+  # -- Admin password to bootstrap the server with. Chart generates a Secret from this value when
+  # set. Mutually exclusive with existingSecret.name.
+  adminPassword: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding the admin password, instead of adminPassword.
+    name: ""
+    # -- Key within existingSecret.name holding the admin password.
+    key: password
+
+webService:
+  # -- DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES (comma separated): local addresses the web console
+  # binds to. Empty renders no variable and leaves Technitium's own default (all interfaces).
+  # First-boot only.
+  localAddresses: []
+  # -- DNS_SERVER_WEB_SERVICE_ENABLE_HTTPS (Boolean): serve the web console and API over HTTPS on
+  # service.httpsPort, in addition to plain HTTP on service.webPort. Defaults to true: Technitium's
+  # native clustering (v14+) talks to peers over this HTTPS API port, so a deployment installed
+  # with it off cannot be clustered later without a first-boot reset on every replica. First-boot only.
+  enableHttps: true
+  # -- DNS_SERVER_WEB_SERVICE_USE_SELF_SIGNED_CERT (Boolean): generate a self-signed certificate
+  # for the HTTPS console so it works out of the box. Replace with a real certificate
+  # (tlsCertificatePath and tlsCertificatePassword below) before exposing the console outside the
+  # cluster. First-boot only.
+  useSelfSignedCert: true
+  # -- DNS_SERVER_WEB_SERVICE_TLS_CERTIFICATE_PATH (String path): path to a PKCS#12 (.pfx/.p12)
+  # certificate file inside the container, used instead of the self-signed cert. Requires the
+  # certificate to already exist at that path via some other mechanism (e.g. an extraVolumeMount);
+  # this chart does not provision one. Unset leaves useSelfSignedCert in effect. First-boot only.
+  tlsCertificatePath: ""
+  # -- DNS_SERVER_WEB_SERVICE_TLS_CERTIFICATE_PASSWORD: password protecting tlsCertificatePath.
+  # Rendered as a plain environment variable: upstream provides no _FILE variant for this one,
+  # unlike the admin password and the SSO client secret. First-boot only.
+  tlsCertificatePassword: ""
+  # -- DNS_SERVER_WEB_SERVICE_HTTP_TO_TLS_REDIRECT (Boolean): redirect plain HTTP console
+  # requests to HTTPS. Unset leaves Technitium's own default. First-boot only.
+  httpToTlsRedirect: null
+  # -- DNS_SERVER_WEB_SERVICE_REVERSE_PROXY_ADDRESSES (ACL, comma separated): addresses trusted to
+  # set X-Forwarded-For, e.g. an ingress controller's pod network. Prefix an entry with "!" to
+  # deny it rather than allow it. First-boot only.
+  reverseProxyAddresses: []
+
+optionalProtocol:
+  # -- DNS_SERVER_OPTIONAL_PROTOCOL_DNS_OVER_HTTP (Boolean): enable DNS-over-HTTP. Upstream's own
+  # docs disagree on which port this opens: DockerEnvironmentVariables.md says TCP 80, but
+  # upstream's docker-compose.yml comment says TCP 8053. This chart does not assert which; expose
+  # the matching optionalListeners toggle below (dnsOverHttpPort80 or dnsOverHttpPort8053, or
+  # both) for whichever port your Technitium version actually opens. Unset leaves Technitium's
+  # own default. First-boot only.
+  dnsOverHttp: null
+
+recursion:
+  # -- DNS_SERVER_RECURSION: one of "Allow", "Deny", "AllowOnlyForPrivateNetworks",
+  # "UseSpecifiedNetworkACL". Unset leaves Technitium's own default. First-boot only.
+  mode: ""
+  # -- DNS_SERVER_RECURSION_NETWORK_ACL (ACL, comma separated): only valid when mode is
+  # "UseSpecifiedNetworkACL"; the template fails otherwise. Prefix an entry with "!" to deny it.
+  # First-boot only.
+  networkAcl: []
+
+blocking:
+  # -- DNS_SERVER_ENABLE_BLOCKING (Boolean): enable the ad/malware blocking feature. Unset leaves
+  # Technitium's own default. First-boot only.
+  enabled: null
+  # -- DNS_SERVER_ALLOW_TXT_BLOCKING_REPORT (Boolean): answer TXT queries that ask why a domain
+  # was blocked. Unset leaves Technitium's own default. First-boot only.
+  allowTxtBlockingReport: null
+  # -- DNS_SERVER_BLOCK_LIST_URLS (comma separated): block list URLs to subscribe to. First-boot only.
+  blockListUrls: []
+
+forwarders:
+  # -- DNS_SERVER_FORWARDERS (comma separated): upstream forwarder addresses. First-boot only.
+  servers: []
+  # -- DNS_SERVER_FORWARDER_PROTOCOL: one of "Udp", "Tcp", "Tls", "Https", "HttpsJson". First-boot only.
+  protocol: ""
+
+logging:
+  # -- DNS_SERVER_LOG_USING_LOCAL_TIME (Boolean): timestamp log entries in local time instead of
+  # UTC. Unset leaves Technitium's own default. First-boot only.
+  useLocalTime: null
+  # -- DNS_SERVER_LOG_FOLDER_PATH (String path): log directory, may be relative to the config
+  # folder. First-boot only.
+  folderPath: ""
+  # -- DNS_SERVER_LOG_MAX_LOG_FILE_DAYS (Integer): days of log files to keep; 0 disables
+  # auto-delete. Unset leaves Technitium's own default. First-boot only.
+  maxLogFileDays: null
+
+stats:
+  # -- DNS_SERVER_STATS_ENABLE_IN_MEMORY_STATS (Boolean): keep stats in memory. Unset leaves
+  # Technitium's own default. First-boot only.
+  enableInMemoryStats: null
+  # -- DNS_SERVER_STATS_MAX_STAT_FILE_DAYS (Integer): days of stats files to keep; 0 disables
+  # auto-delete. Unset leaves Technitium's own default. First-boot only.
+  maxStatFileDays: null
+
+# -- OIDC/SSO login for the web console. clientSecret follows the same file-mounted-secret
+# pattern as auth.adminPassword above: DNS_SERVER_SSO_CLIENT_SECRET is never rendered, only
+# DNS_SERVER_SSO_CLIENT_SECRET_FILE, backed by a chart-generated or operator-supplied Secret.
+sso:
+  # -- DNS_SERVER_SSO_ENABLED (Boolean). Unset leaves Technitium's own default. First-boot only.
+  enabled: null
+  # -- DNS_SERVER_SSO_AUTHORITY: the OIDC issuer URL. First-boot only.
+  authority: ""
+  # -- DNS_SERVER_SSO_CLIENT_ID. First-boot only.
+  clientId: ""
+  # -- OIDC client secret. Chart generates a Secret from this value when set. Mutually exclusive
+  # with existingSecret.name.
+  clientSecret: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding the OIDC client secret, instead of clientSecret.
+    name: ""
+    # -- Key within existingSecret.name holding the OIDC client secret.
+    key: client-secret
+  # -- DNS_SERVER_SSO_METADATA_ADDRESS: OIDC discovery metadata URL. First-boot only.
+  metadataAddress: ""
+  # -- DNS_SERVER_SSO_SCOPES (comma separated): additional scopes to request. "openid" and
+  # "profile" are mandatory and added by Technitium itself; list only scopes beyond those two
+  # here. First-boot only.
+  scopes: []
+  # -- DNS_SERVER_SSO_ALLOW_SIGNUP (Boolean): let a user who authenticates via SSO but has no
+  # existing Technitium account get one created automatically. Unset leaves Technitium's own
+  # default. First-boot only.
+  allowSignup: null
+  # -- DNS_SERVER_SSO_ALLOW_SIGNUP_ONLY_FOR_MAPPED_USERS (Boolean): restrict auto-signup to users
+  # whose remote group maps to a local one via groupMap below. Unset leaves Technitium's own
+  # default. First-boot only.
+  allowSignupOnlyForMappedUsers: null
+  # -- DNS_SERVER_SSO_GROUP_MAP: list of {remote, local} pairs, rendered as comma-separated
+  # "Remote:Local" entries. First-boot only.
+  groupMap: []
+  # - remote: ""
+  #   local: ""
+
+optionalListeners:
+  # -- Additional container/Service ports, individually toggleable and off by default. None of
+  # these have a corresponding DNS_SERVER_* environment variable in this chart (aside from
+  # optionalProtocol.dnsOverHttp above): enabling one only opens the port at the Kubernetes level,
+  # since Technitium reads the underlying protocol setting from its own config, not from an env
+  # var read once at first boot. Enable the protocol itself in the web console or HTTP API, then
+  # flip the matching toggle here so the port is actually reachable.
+  dnsOverTls:
+    # -- Expose port 853/TCP (DNS-over-TLS).
+    enabled: false
+  dnsOverQuic:
+    # -- Expose port 853/UDP (DNS-over-QUIC).
+    enabled: false
+  dnsOverHttps:
+    # -- Expose port 443/TCP (DNS-over-HTTPS, HTTP/1.1 and HTTP/2).
+    enabled: false
+  dnsOverHttp3:
+    # -- Expose port 443/UDP (DNS-over-HTTPS, HTTP/3).
+    enabled: false
+  dnsOverHttpPort80:
+    # -- Expose port 80/TCP (DNS-over-HTTP; reverse proxy or certbot renewal). See the note on
+    # optionalProtocol.dnsOverHttp above about which port actually serves DNS-over-HTTP.
+    enabled: false
+  dnsOverHttpPort8053:
+    # -- Expose port 8053/TCP (DNS-over-HTTP; reverse proxy). See the note on
+    # optionalProtocol.dnsOverHttp above about which port actually serves DNS-over-HTTP.
+    enabled: false
+  dhcp:
+    # -- Expose port 67/UDP (DHCP).
+    enabled: false
+
+ingress:
+  # -- Create an Ingress for the web console. Only ever targets the plain HTTP web Service port;
+  # this chart never puts the DNS ports (53, or any optionalListeners port) behind an Ingress,
+  # since Ingress is an HTTP-routing concept and DNS traffic is not HTTP.
+  enabled: false
+  # -- IngressClass to use.
+  className: ""
+  # -- Annotations added to the Ingress.
+  annotations: {}
+  # -- Hosts and paths routed to the web console.
+  hosts:
+    - host: technitium.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  # -- TLS configuration blocks, as in a standard networking.k8s.io/v1 Ingress spec.
+  tls: []
+
+persistence:
+  # -- Size of the volumeClaimTemplate backing the data directory (config, zones, DNSSEC keys, stats, apps).
+  size: 1Gi
+  # -- StorageClass for the volumeClaimTemplate. Empty string uses the cluster's default StorageClass.
+  storageClass: ""
+  # -- Access modes for the volumeClaimTemplate.
+  accessModes:
+    - ReadWriteOnce
+  # -- Annotations added to the volumeClaimTemplate.
+  annotations: {}
+  # -- Container path the data volume is mounted at. Technitium's own default is /etc/dns; change
+  # this only if the image is configured to look elsewhere.
+  mountPath: /etc/dns
+  retentionPolicy:
+    # -- Fate of each replica's PVC when the StatefulSet is deleted. DNS state (zones, DNSSEC keys)
+    # is not something to discard on a `helm uninstall` typo, so this defaults to Retain rather
+    # than the Kubernetes-wide default of Delete.
+    whenDeleted: Retain
+    # -- Fate of a replica's PVC when the StatefulSet is scaled down. Retain keeps the volume around
+    # in case the replica count is scaled back up.
+    whenScaled: Retain
+
+readinessProbe:
+  # -- HTTP path checked on the web console port. GET /api/status needs no authentication and was
+  # added in Technitium v15.3; override this when pinning an older appVersion that lacks it.
+  path: /api/status
+  # -- Port the readiness probe targets.
+  port: 5380
+  # -- Seconds to wait before the first readiness check.
+  initialDelaySeconds: 5
+  # -- Seconds between readiness checks.
+  periodSeconds: 10
+  # -- Seconds before a readiness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the pod is marked not ready.
+  failureThreshold: 6
+  # -- Consecutive successes required to mark the pod ready again.
+  successThreshold: 1
+
+livenessProbe:
+  # -- Port the liveness probe opens a TCP socket against. Checking the DNS port, rather than the
+  # web console, catches a resolver that has stopped answering queries while the web UI stays up.
+  port: 53
+  # -- Seconds to wait before the first liveness check.
+  initialDelaySeconds: 15
+  # -- Seconds between liveness checks.
+  periodSeconds: 20
+  # -- Seconds before a liveness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the container is restarted.
+  failureThreshold: 6
+
+startupProbe:
+  # -- Enable a startup probe that gates the readiness and liveness probes until first boot completes.
+  # Initial DNSSEC key generation and /etc/dns setup can take longer than a steady-state check allows.
+  enabled: true
+  # -- HTTP path checked on the web console port.
+  path: /api/status
+  # -- Port the startup probe targets.
+  port: 5380
+  # -- Seconds to wait before the first startup check.
+  initialDelaySeconds: 5
+  # -- Seconds between startup checks.
+  periodSeconds: 5
+  # -- Seconds before a startup check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures allowed before the container is considered to have failed to start.
+  failureThreshold: 30
+
+# -- Resource requests and limits for the container.
+resources: {}
+
+# -- Additional environment variables for the container, as a list of name/value(From) entries,
+# appended after every structured DNS_SERVER_* variable above. Use auth.adminPassword or
+# auth.existingSecret for the admin password rather than setting DNS_SERVER_ADMIN_PASSWORD here:
+# the plain variable puts the password in the pod spec and process environment, which is exactly
+# what the _FILE-based wiring above exists to avoid.
+extraEnvVars: []
+
+# -- Node selector for pod scheduling.
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling.
+tolerations: []
+
+# -- PriorityClass for the pods. A resolver that loses to eviction takes every workload that
+# depends on it down with it, so clusters running this as infrastructure usually want
+# system-cluster-critical here.
+priorityClassName: ""
+
+# -- Affinity rules for pod scheduling. Setting this overrides the affinity generated from
+# podAntiAffinity entirely; the two are not merged.
+affinity: {}
+
+# -- Anti-affinity mode spreading replicas across nodes, keyed on the kubernetes.io/hostname label.
+# One of "required", "preferred" or "" (disabled). Defaults to "required": two replicas sharing a
+# node is not HA, and silently degrading to that (as "preferred" would under scheduling pressure)
+# is worse than a Pod staying Pending until another node is available. Ignored when affinity above
+# is set. Note that kind/k3d node-local path provisioners pin a PVC to the node that first claimed
+# it, so a replica can never reschedule to a different node once its PVC is bound; keep
+# replicaCount at or below the worker count on those clusters and do not expect drain-and-recover
+# to work locally.
+podAntiAffinity: required
+
+podDisruptionBudget:
+  # -- Create a PodDisruptionBudget for the StatefulSet's pods.
+  enabled: true
+  # -- Maximum number of replicas that may be unavailable due to a voluntary disruption. Mutually
+  # exclusive with minAvailable: set this to "" when setting minAvailable, since setting both fails
+  # the template.
+  maxUnavailable: 1
+  # -- Minimum number of replicas that must remain available during a voluntary disruption. Mutually
+  # exclusive with maxUnavailable; leave maxUnavailable at "" when using this.
+  minAvailable: ""
+
+updateStrategy:
+  # -- StatefulSet update strategy. Defaults to RollingUpdate. Use OnDelete for a cross-major
+  # Technitium upgrade: upstream requires every node in a cluster to run the same version, so an
+  # automatic rolling update (which runs mixed versions mid-rollout) is unsafe there; OnDelete lets
+  # the operator take the whole cluster down and bring it back up on the new version deliberately.
+  type: RollingUpdate
+
+test:
+  image:
+    # -- Image used by the helm test hook to call the unauthenticated GET /api/status endpoint.
+    repository: curlimages/curl
+    # -- Tag of the test image.
+    tag: "8.11.1"
+    # -- Pull policy of the test image.
+    pullPolicy: IfNotPresent
+  dnsImage:
+    # -- Image used by the helm test hook that resolves a name, needs a DNS client rather than curl.
+    repository: busybox
+    # -- Tag of the DNS test image.
+    tag: "1.36"
+    # -- Pull policy of the DNS test image.
+    pullPolicy: IfNotPresent
+  recursion:
+    # -- Run a helm test that resolves a public name to prove recursion works. Off by default
+    # because it needs egress to the public internet, which an air-gapped cluster will not have.
+    enabled: false
+    # -- Name the recursion test resolves.
+    queryName: example.com

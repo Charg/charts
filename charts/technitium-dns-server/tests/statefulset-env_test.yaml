@@ -1,0 +1,560 @@
+---
+suite: test statefulset environment and secrets
+templates:
+  - statefulset.yaml
+tests:
+  - it: renders the full environment mapping for a representative rich values file covering every concern group
+    set:
+      server:
+        domain: dns.example.com
+        preferIPv6: true
+      auth:
+        adminPassword: s3cr3t
+      webService:
+        localAddresses:
+          - 0.0.0.0
+          - "::"
+        useSelfSignedCert: false
+        tlsCertificatePath: /certs/dns.pfx
+        tlsCertificatePassword: certpass
+        httpToTlsRedirect: true
+        reverseProxyAddresses:
+          - 10.0.0.0/8
+          - "!10.1.0.0/16"
+      optionalProtocol:
+        dnsOverHttp: true
+      recursion:
+        mode: UseSpecifiedNetworkACL
+        networkAcl:
+          - 10.0.0.0/8
+      blocking:
+        enabled: true
+        allowTxtBlockingReport: true
+        blockListUrls:
+          - https://example.com/list.txt
+      forwarders:
+        servers:
+          - 1.1.1.1
+          - 1.0.0.1
+        protocol: Tls
+      logging:
+        useLocalTime: true
+        folderPath: logs
+        maxLogFileDays: 0
+      stats:
+        enableInMemoryStats: true
+        maxStatFileDays: 0
+      sso:
+        enabled: true
+        authority: https://idp.example.com
+        clientId: technitium
+        clientSecret: sso-secret
+        metadataAddress: https://idp.example.com/.well-known/openid-configuration
+        scopes:
+          - email
+        allowSignup: true
+        allowSignupOnlyForMappedUsers: true
+        groupMap:
+          - remote: Engineering
+            local: engineers
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_DOMAIN
+            value: dns.example.com
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_PREFER_IPV6
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_ADMIN_PASSWORD_FILE
+            value: /etc/technitium-secrets/admin-password/password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES
+            value: "0.0.0.0,::"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_HTTP_PORT
+            value: "5380"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_ENABLE_HTTPS
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_HTTPS_PORT
+            value: "53443"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_USE_SELF_SIGNED_CERT
+            value: "false"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_TLS_CERTIFICATE_PATH
+            value: /certs/dns.pfx
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_TLS_CERTIFICATE_PASSWORD
+            value: certpass
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_HTTP_TO_TLS_REDIRECT
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_WEB_SERVICE_REVERSE_PROXY_ADDRESSES
+            value: "10.0.0.0/8,!10.1.0.0/16"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_OPTIONAL_PROTOCOL_DNS_OVER_HTTP
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_RECURSION
+            value: UseSpecifiedNetworkACL
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_RECURSION_NETWORK_ACL
+            value: 10.0.0.0/8
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_ENABLE_BLOCKING
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_ALLOW_TXT_BLOCKING_REPORT
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_BLOCK_LIST_URLS
+            value: https://example.com/list.txt
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_FORWARDERS
+            value: "1.1.1.1,1.0.0.1"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_FORWARDER_PROTOCOL
+            value: Tls
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_LOG_USING_LOCAL_TIME
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_LOG_FOLDER_PATH
+            value: logs
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_LOG_MAX_LOG_FILE_DAYS
+            value: "0"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_STATS_ENABLE_IN_MEMORY_STATS
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_STATS_MAX_STAT_FILE_DAYS
+            value: "0"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_ENABLED
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_AUTHORITY
+            value: https://idp.example.com
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_CLIENT_ID
+            value: technitium
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_CLIENT_SECRET_FILE
+            value: /etc/technitium-secrets/sso-client-secret/client-secret
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_METADATA_ADDRESS
+            value: https://idp.example.com/.well-known/openid-configuration
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_SCOPES
+            value: email
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_ALLOW_SIGNUP
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_ALLOW_SIGNUP_ONLY_FOR_MAPPED_USERS
+            value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_GROUP_MAP
+            value: "Engineering:engineers"
+
+  - it: renders no environment variable at all for values left unset
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_DOMAIN")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_PREFER_IPV6")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_ADMIN_PASSWORD_FILE")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_WEB_SERVICE_TLS_CERTIFICATE_PATH")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_WEB_SERVICE_TLS_CERTIFICATE_PASSWORD")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_WEB_SERVICE_HTTP_TO_TLS_REDIRECT")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_WEB_SERVICE_REVERSE_PROXY_ADDRESSES")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_OPTIONAL_PROTOCOL_DNS_OVER_HTTP")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_RECURSION")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_RECURSION_NETWORK_ACL")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_ENABLE_BLOCKING")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_ALLOW_TXT_BLOCKING_REPORT")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_BLOCK_LIST_URLS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_FORWARDERS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_FORWARDER_PROTOCOL")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_LOG_USING_LOCAL_TIME")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_LOG_FOLDER_PATH")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_LOG_MAX_LOG_FILE_DAYS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_STATS_ENABLE_IN_MEMORY_STATS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_STATS_MAX_STAT_FILE_DAYS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_ENABLED")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_AUTHORITY")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_CLIENT_ID")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_CLIENT_SECRET_FILE")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_METADATA_ADDRESS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_SCOPES")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_ALLOW_SIGNUP")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_ALLOW_SIGNUP_ONLY_FOR_MAPPED_USERS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_GROUP_MAP")]
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_WEB_SERVICE_HTTP_PORT")].value
+          value: "5380"
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_WEB_SERVICE_ENABLE_HTTPS")].value
+          value: "true"
+
+  - it: never renders the obsolete recursion variables superseded by DNS_SERVER_RECURSION
+    set:
+      recursion:
+        mode: UseSpecifiedNetworkACL
+        networkAcl:
+          - 10.0.0.0/8
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_RECURSION_DENIED_NETWORKS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_RECURSION_ALLOWED_NETWORKS")]
+
+  - it: never renders the plain admin password or SSO client secret variables
+    set:
+      auth:
+        adminPassword: s3cr3t
+      sso:
+        clientSecret: sso-secret
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_ADMIN_PASSWORD")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name=="DNS_SERVER_SSO_CLIENT_SECRET")]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_ADMIN_PASSWORD_FILE
+            value: /etc/technitium-secrets/admin-password/password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DNS_SERVER_SSO_CLIENT_SECRET_FILE
+            value: /etc/technitium-secrets/sso-client-secret/client-secret
+
+  - it: fails when both auth.adminPassword and auth.existingSecret.name are set
+    set:
+      auth:
+        adminPassword: s3cr3t
+        existingSecret:
+          name: my-admin-secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "auth: set only one of adminPassword or existingSecret.name, not both"
+
+  - it: fails when both sso.clientSecret and sso.existingSecret.name are set
+    set:
+      sso:
+        clientSecret: sso-secret
+        existingSecret:
+          name: my-sso-secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "sso: set only one of clientSecret or existingSecret.name, not both"
+
+  - it: fails on an invalid recursion.mode
+    set:
+      recursion:
+        mode: Bogus
+    asserts:
+      - failedTemplate:
+          errorMessage: >-
+            recursion.mode must be one of Allow, Deny, AllowOnlyForPrivateNetworks,
+            UseSpecifiedNetworkACL, got "Bogus"
+
+  - it: fails when recursion.networkAcl is set without UseSpecifiedNetworkACL mode
+    set:
+      recursion:
+        networkAcl:
+          - 10.0.0.0/8
+    asserts:
+      - failedTemplate:
+          errorMessage: 'recursion.networkAcl is only valid when recursion.mode is "UseSpecifiedNetworkACL"'
+
+  - it: fails on an invalid forwarders.protocol
+    set:
+      forwarders:
+        protocol: Bogus
+    asserts:
+      - failedTemplate:
+          errorMessage: 'forwarders.protocol must be one of Udp, Tcp, Tls, Https, HttpsJson, got "Bogus"'
+
+  - it: mounts the generated admin password Secret at the expected path
+    set:
+      auth:
+        adminPassword: s3cr3t
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: admin-password
+            mountPath: /etc/technitium-secrets/admin-password
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: admin-password
+            secret:
+              secretName: RELEASE-NAME-technitium-dns-server-admin-password
+              defaultMode: 256
+              items:
+                - key: password
+                  path: password
+
+  - it: mounts an operator-supplied existing admin password Secret instead of generating one
+    set:
+      auth:
+        existingSecret:
+          name: my-admin-secret
+          key: admin-pw
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: admin-password
+            secret:
+              secretName: my-admin-secret
+              defaultMode: 256
+              items:
+                - key: admin-pw
+                  path: password
+
+  - it: mounts the generated SSO client secret Secret at the expected path
+    set:
+      sso:
+        clientSecret: sso-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: sso-client-secret
+            mountPath: /etc/technitium-secrets/sso-client-secret
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sso-client-secret
+            secret:
+              secretName: RELEASE-NAME-technitium-dns-server-sso-client-secret
+              defaultMode: 256
+              items:
+                - key: client-secret
+                  path: client-secret
+
+  - it: mounts an operator-supplied existing SSO client secret Secret instead of generating one
+    set:
+      sso:
+        existingSecret:
+          name: my-sso-secret
+          key: secret
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: sso-client-secret
+            secret:
+              secretName: my-sso-secret
+              defaultMode: 256
+              items:
+                - key: secret
+                  path: client-secret
+
+  - it: renders no volumes when no credential is configured
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes
+
+  - it: omits every optional listener container port by default
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="dns-tls")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="dns-quic")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="dns-https")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="dns-http3")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="dns-http-80")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="dns-http-8053")]
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="dhcp")]
+
+  - it: exposes every optional listener container port when enabled
+    set:
+      optionalListeners:
+        dnsOverTls:
+          enabled: true
+        dnsOverQuic:
+          enabled: true
+        dnsOverHttps:
+          enabled: true
+        dnsOverHttp3:
+          enabled: true
+        dnsOverHttpPort80:
+          enabled: true
+        dnsOverHttpPort8053:
+          enabled: true
+        dhcp:
+          enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-tls
+            containerPort: 853
+            protocol: TCP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-quic
+            containerPort: 853
+            protocol: UDP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-https
+            containerPort: 443
+            protocol: TCP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-http3
+            containerPort: 443
+            protocol: UDP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-http-80
+            containerPort: 80
+            protocol: TCP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dns-http-8053
+            containerPort: 8053
+            protocol: TCP
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dhcp
+            containerPort: 67
+            protocol: UDP
+
+  - it: exposes the HTTPS console container port by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: web-https
+            containerPort: 53443
+            protocol: TCP
+
+  - it: omits the HTTPS console container port when disabled
+    set:
+      webService:
+        enableHttps: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].ports[?(@.name=="web-https")]

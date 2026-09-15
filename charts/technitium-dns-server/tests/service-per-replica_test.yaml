@@ -1,0 +1,197 @@
+---
+suite: test per-replica service
+templates:
+  - service-per-replica.yaml
+tests:
+  - it: renders one Service per replica
+    set:
+      replicaCount: 3
+    asserts:
+      - hasDocuments:
+          count: 3
+
+  - it: renders nothing when disabled
+    set:
+      perReplicaService.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: the ordinal-0 Service selects only the ordinal-0 pod
+    set:
+      replicaCount: 3
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-technitium-dns-server-0
+      - equal:
+          path: spec.selector["statefulset.kubernetes.io/pod-name"]
+          value: RELEASE-NAME-technitium-dns-server-0
+
+  - it: the ordinal-1 Service selects only the ordinal-1 pod
+    set:
+      replicaCount: 3
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-technitium-dns-server-1
+      - equal:
+          path: spec.selector["statefulset.kubernetes.io/pod-name"]
+          value: RELEASE-NAME-technitium-dns-server-1
+
+  - it: the ordinal-2 Service selects only the ordinal-2 pod
+    set:
+      replicaCount: 3
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-technitium-dns-server-2
+      - equal:
+          path: spec.selector["statefulset.kubernetes.io/pod-name"]
+          value: RELEASE-NAME-technitium-dns-server-2
+
+  - it: aligns loadBalancerIPs index 0 to ordinal 0
+    set:
+      replicaCount: 3
+      perReplicaService.loadBalancerIPs:
+        - 10.0.0.10
+        - 10.0.0.11
+        - 10.0.0.12
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.loadBalancerIP
+          value: 10.0.0.10
+
+  - it: aligns loadBalancerIPs index 1 to ordinal 1
+    set:
+      replicaCount: 3
+      perReplicaService.loadBalancerIPs:
+        - 10.0.0.10
+        - 10.0.0.11
+        - 10.0.0.12
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: spec.loadBalancerIP
+          value: 10.0.0.11
+
+  - it: aligns loadBalancerIPs index 2 to ordinal 2
+    set:
+      replicaCount: 3
+      perReplicaService.loadBalancerIPs:
+        - 10.0.0.10
+        - 10.0.0.11
+        - 10.0.0.12
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: spec.loadBalancerIP
+          value: 10.0.0.12
+
+  - it: fails the template when the address list is longer than replicaCount
+    set:
+      replicaCount: 1
+      perReplicaService.loadBalancerIPs:
+        - 10.0.0.10
+        - 10.0.0.11
+    asserts:
+      - failedTemplate:
+          errorMessage: "perReplicaService.loadBalancerIPs has 2 entries but replicaCount is 1; not silently truncated"
+
+  - it: renders with an address for ordinals covered by a short address list
+    set:
+      replicaCount: 3
+      perReplicaService.loadBalancerIPs:
+        - 10.0.0.10
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.loadBalancerIP
+          value: 10.0.0.10
+
+  - it: renders without an address for ordinals beyond a short address list
+    set:
+      replicaCount: 3
+      perReplicaService.loadBalancerIPs:
+        - 10.0.0.10
+    documentIndex: 1
+    asserts:
+      - notExists:
+          path: spec.loadBalancerIP
+
+  - it: applies per-replica annotations at index 0
+    set:
+      replicaCount: 2
+      perReplicaService.annotations:
+        - metallb.universe.tf/address-pool: pool-a
+        - metallb.universe.tf/address-pool: pool-b
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.annotations["metallb.universe.tf/address-pool"]
+          value: pool-a
+
+  - it: applies per-replica annotations at index 1
+    set:
+      replicaCount: 2
+      perReplicaService.annotations:
+        - metallb.universe.tf/address-pool: pool-a
+        - metallb.universe.tf/address-pool: pool-b
+    documentIndex: 1
+    asserts:
+      - equal:
+          path: metadata.annotations["metallb.universe.tf/address-pool"]
+          value: pool-b
+
+  - it: sets loadBalancerClass when configured
+    set:
+      perReplicaService.loadBalancerClass: metallb.io/l2
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.loadBalancerClass
+          value: metallb.io/l2
+
+  - it: sets externalTrafficPolicy for LoadBalancer
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Local
+
+  - it: omits externalTrafficPolicy for ClusterIP
+    set:
+      perReplicaService.type: ClusterIP
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - notExists:
+          path: spec.externalTrafficPolicy
+
+  - it: sets externalTrafficPolicy for NodePort
+    set:
+      perReplicaService.type: NodePort
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.externalTrafficPolicy
+          value: Local
+
+  - it: does not set loadBalancerIP when type is not LoadBalancer
+    set:
+      perReplicaService.type: ClusterIP
+      perReplicaService.loadBalancerIPs:
+        - 10.0.0.10
+    documentIndex: 0
+    asserts:
+      - notExists:
+          path: spec.loadBalancerIP

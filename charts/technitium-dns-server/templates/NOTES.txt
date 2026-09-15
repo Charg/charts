@@ -1,0 +1,55 @@
+Technitium DNS Server is running as a StatefulSet.
+
+IMPORTANT: every value under server, auth, webService, optionalProtocol, recursion, blocking,
+forwarders, logging, stats and sso is read by Technitium's Docker image only when the DNS
+config file does not yet exist, i.e. the first time a replica boots against an empty /etc/dns
+volume. Editing one of these values and running `helm upgrade` does NOT reconfigure a server
+that has already initialized; it only takes effect on a replica that starts against a fresh
+volume. Reconfigure a running server through its web console or HTTP API instead.
+
+1. Reach the web console:
+
+   export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "technitium-dns-server.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+   kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 5380:{{ .Values.service.webPort }}
+
+   Then open http://127.0.0.1:5380 and log in with the admin credentials configured for the
+   deployment (auth.adminPassword / auth.existingSecret at first boot, or whatever was set
+   afterwards through the console).
+{{- if .Values.webService.enableHttps }}
+
+   The console is also served over HTTPS on port {{ .Values.service.httpsPort }}
+   {{- if .Values.webService.useSelfSignedCert }} with a self-signed certificate (expected browser
+   warning until a real certificate is configured via webService.tlsCertificatePath){{ end }}.
+{{- end }}
+{{- if .Values.ingress.enabled }}
+
+   An Ingress is also configured for the web console:
+   {{- range .Values.ingress.hosts }}
+   http://{{ .host }}
+   {{- end }}
+{{- end }}
+
+2. Query DNS from inside the cluster:
+
+   dig @{{ include "technitium-dns-server.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local example.com
+
+3. Verify the deployment:
+
+   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+
+   This calls the unauthenticated GET {{ .Values.readinessProbe.path }} endpoint on the web
+   console port and checks that it reports status "ok".
+{{- if .Values.perReplicaService.enabled }}
+
+4. Each replica has its own Service, so it has an address independent of pod rescheduling:
+
+   kubectl get svc --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "technitium-dns-server.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+   Technitium's clustering (v14+) joins nodes by IP address, not hostname, so use these
+   addresses (not Pod IPs) when running cluster-init / cluster-join against this deployment.
+{{- end }}
+
+Running against kind or k3d: both use a node-local path provisioner that pins a PVC to the
+node that first claimed it, so a pod can never reschedule to a different node once its PVC is
+bound; it stays Pending with a volume node affinity conflict instead. Keep replicaCount at or
+below the worker count and do not attempt drain-and-recover testing on those clusters.
