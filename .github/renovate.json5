@@ -1,0 +1,67 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    "config:recommended",
+    // Group all non-major digest/action bumps into as few PRs as reasonable.
+    ":semanticCommits",
+    ":semanticCommitScopeDisabled",
+  ],
+
+  // Match the repo's commit style (feat/fix/chore, no scope noise).
+  semanticCommitType: "chore",
+
+  // ghcr publishing is triggered by pushes to main that touch charts/**. Keep Renovate
+  // branches out of that path except when it genuinely bumps a chart, and let CI gate merges.
+  labels: ["dependencies"],
+  rangeStrategy: "pin",
+  configMigration: true,
+
+  // Flake inputs (nixpkgs) tracked via the lockfile. Renovate re-locks against the pinned
+  // nixos-26.05 branch ref rather than moving the ref itself.
+  nix: {
+    enabled: true,
+  },
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 6am on monday"],
+  },
+
+  packageRules: [
+    {
+      // GitHub Actions are SHA-pinned with a version comment; keep that pinning on update.
+      matchManagers: ["github-actions"],
+      pinDigests: true,
+      groupName: "github actions",
+    },
+    {
+      // The Technitium image is the payload. Surface it on its own so a DNS-server bump
+      // is never buried in a group.
+      matchDepNames: ["technitium/dns-server"],
+      groupName: "technitium dns-server",
+      commitMessageTopic: "Technitium DNS server",
+    },
+  ],
+
+  // appVersion in Chart.yaml is the source of truth for the image tag (values.yaml
+  // image.tag defaults to .Chart.AppVersion). Track the Docker Hub tag and rewrite it here.
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^charts/.+/Chart\\.yaml$/"],
+      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      depNameTemplate: "technitium/dns-server",
+      datasourceTemplate: "docker",
+      registryUrlTemplate: "https://index.docker.io",
+    },
+  ],
+
+  // When a PR rewrites appVersion, bump the chart's own version so the release job publishes
+  // a new artifact. Actions/flake bumps do not touch Chart.yaml, so they do not trigger this.
+  bumpVersions: [
+    {
+      filePatterns: ["charts/**/Chart.yaml"],
+      matchStrings: ["\\sversion:\\s*(?<version>\\S+)"],
+      bumpType: "patch",
+    },
+  ],
+}
