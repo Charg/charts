@@ -434,7 +434,7 @@ test:
     # -- Image used by the helm test hook to call the unauthenticated GET /api/status endpoint.
     repository: curlimages/curl
     # -- Tag of the test image.
-    tag: "8.11.1"
+    tag: "8.22.0"
     # -- Pull policy of the test image.
     pullPolicy: IfNotPresent
   dnsImage:
