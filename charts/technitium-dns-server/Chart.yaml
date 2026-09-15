@@ -12,7 +12,7 @@ keywords:
   - networking
 home: https://technitium.com/dns/
 sources:
-  - https://github.com/Charg/carts
+  - https://github.com/Charg/charts
   - https://github.com/TechnitiumSoftware/DnsServer
 maintainers:
   - name: chris

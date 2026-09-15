@@ -92,7 +92,7 @@ Verify the cosign signature against the release workflow's own identity:
 
 ```bash
 cosign verify \
-  --certificate-identity "https://github.com/Charg/carts/.github/workflows/release.yaml@refs/heads/main" \
+  --certificate-identity "https://github.com/Charg/charts/.github/workflows/release.yaml@refs/heads/main" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   ghcr.io/charg/<chart>@<digest>
 ```
@@ -100,7 +100,7 @@ cosign verify \
 Verify build provenance:
 
 ```bash
-gh attestation verify oci://ghcr.io/charg/<chart>@<digest> --repo Charg/carts
+gh attestation verify oci://ghcr.io/charg/<chart>@<digest> --repo Charg/charts
 ```
 
 Both commands need to reach `ghcr.io`; while a chart's package is still private (see the
