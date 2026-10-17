@@ -5,6 +5,7 @@ Helm charts published as OCI artifacts to GitHub Packages, signed keylessly with
 | Chart | Description |
 | ----- | ----------- |
 | [technitium-dns-server](charts/technitium-dns-server) | Self-hosted authoritative and recursive DNS server with a web console, DNSSEC, and ad/malware blocking. |
+| [vaultwarden](charts/vaultwarden) | Unofficial Bitwarden-compatible password manager server with the web vault, admin panel, SSO and SMTP. |
 
 Standing up Technitium's native HA clustering across replicas is a manual, one-time step by
 design: see [charts/technitium-dns-server/docs/clustering.md](charts/technitium-dns-server/docs/clustering.md).

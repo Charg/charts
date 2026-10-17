@@ -1,0 +1,34 @@
+---
+# The locked-down profile README.md recommends: non-root, read-only root filesystem, no
+# capabilities, served under a sub-path. Proves three things at once: the default containerPort
+# (8080) binds without privileges, the projected credential files (0440 + fsGroup) are readable
+# by a non-root user, and the probes and helm test follow domain's sub-path.
+domain: https://vaultwarden.ci.local/vw
+admin:
+  # Argon2id PHC string for "ci-admin-token".
+  token: "$argon2id$v=19$m=65540,t=3,p=4$WkJxNHRQZjBybDBiRnk0VQ$R79yVlHgfES/W6LhpYTFVWFDEiOZMIq7J7uWWIPsufg"
+signups:
+  allowed: false
+invitations:
+  allowed: true
+env:
+  DISABLE_ICON_DOWNLOAD: "true"
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp

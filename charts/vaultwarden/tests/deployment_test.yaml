@@ -1,0 +1,496 @@
+---
+suite: test deployment
+templates:
+  - deployment.yaml
+  - secret.yaml
+tests:
+  - it: runs a single replica with the Recreate strategy and the appVersion image by default
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/vaultwarden/server:1.37.4
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: honours an explicit image tag
+    template: deployment.yaml
+    set:
+      image:
+        tag: 1.37.4-alpine
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/vaultwarden/server:1.37.4-alpine
+
+  - it: renders only ROCKET_PORT when nothing else is configured
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: ROCKET_PORT
+              value: "8080"
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8080
+
+  - it: renders the full structured environment, with credentials as _FILE paths only
+    template: deployment.yaml
+    set:
+      domain: https://vault.example.com
+      signups:
+        allowed: false
+        verify: true
+        domainsWhitelist:
+          - example.com
+          - example.org
+      invitations:
+        allowed: true
+        orgName: Example
+      admin:
+        token: admin-secret
+      database:
+        url: postgresql://vw:pw@db:5432/vw
+      smtp:
+        host: smtp.example.com
+        from: vault@example.com
+        fromName: Vault
+        port: 465
+        security: force_tls
+        username: vault
+        password: smtp-secret
+      push:
+        enabled: true
+        installationId: install-id
+        installationKey: install-key
+        relayUri: https://api.bitwarden.eu
+        identityUri: https://identity.bitwarden.eu
+      sso:
+        enabled: true
+        only: false
+        authority: https://auth.example.com
+        clientId: vaultwarden
+        clientSecret: sso-secret
+        scopes:
+          - email
+          - profile
+          - groups
+        pkce: true
+        signupsMatchEmail: false
+      env:
+        LOG_LEVEL: warn
+        DISABLE_ICON_DOWNLOAD: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: ROCKET_PORT
+              value: "8080"
+            - name: DOMAIN
+              value: https://vault.example.com
+            - name: SIGNUPS_ALLOWED
+              value: "false"
+            - name: SIGNUPS_VERIFY
+              value: "true"
+            - name: SIGNUPS_DOMAINS_WHITELIST
+              value: example.com,example.org
+            - name: INVITATIONS_ALLOWED
+              value: "true"
+            - name: INVITATION_ORG_NAME
+              value: Example
+            - name: SMTP_HOST
+              value: smtp.example.com
+            - name: SMTP_FROM
+              value: vault@example.com
+            - name: SMTP_FROM_NAME
+              value: Vault
+            - name: SMTP_PORT
+              value: "465"
+            - name: SMTP_SECURITY
+              value: force_tls
+            - name: SMTP_USERNAME
+              value: vault
+            - name: PUSH_ENABLED
+              value: "true"
+            - name: PUSH_INSTALLATION_ID
+              value: install-id
+            - name: PUSH_RELAY_URI
+              value: https://api.bitwarden.eu
+            - name: PUSH_IDENTITY_URI
+              value: https://identity.bitwarden.eu
+            - name: SSO_ENABLED
+              value: "true"
+            - name: SSO_ONLY
+              value: "false"
+            - name: SSO_AUTHORITY
+              value: https://auth.example.com
+            - name: SSO_CLIENT_ID
+              value: vaultwarden
+            - name: SSO_SCOPES
+              value: email profile groups
+            - name: SSO_PKCE
+              value: "true"
+            - name: SSO_SIGNUPS_MATCH_EMAIL
+              value: "false"
+            - name: ADMIN_TOKEN_FILE
+              value: /run/secrets/vaultwarden/admin-token
+            - name: DATABASE_URL_FILE
+              value: /run/secrets/vaultwarden/database-url
+            - name: SMTP_PASSWORD_FILE
+              value: /run/secrets/vaultwarden/smtp-password
+            - name: PUSH_INSTALLATION_KEY_FILE
+              value: /run/secrets/vaultwarden/push-installation-key
+            - name: SSO_CLIENT_SECRET_FILE
+              value: /run/secrets/vaultwarden/sso-client-secret
+            - name: DISABLE_ICON_DOWNLOAD
+              value: "true"
+            - name: LOG_LEVEL
+              value: warn
+
+  - it: renders an explicit false Boolean rather than treating it as unset
+    template: deployment.yaml
+    set:
+      signups:
+        allowed: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SIGNUPS_ALLOWED
+            value: "false"
+
+  - it: appends extraEnvVars and extraEnvFrom
+    template: deployment.yaml
+    set:
+      extraEnvVars:
+        - name: FROM_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: other
+              key: k
+      extraEnvFrom:
+        - secretRef:
+            name: vaultwarden-env
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: FROM_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: other
+                key: k
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: vaultwarden-env
+
+  - it: mounts no credentials volume when no credential is configured
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: credentials
+          any: true
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: data
+              mountPath: /data
+
+  - it: projects inline and existing Secrets into one credentials volume
+    template: deployment.yaml
+    set:
+      admin:
+        token: admin-secret
+      database:
+        existingSecret:
+          name: pg-app
+          key: uri
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: credentials
+            mountPath: /run/secrets/vaultwarden
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: credentials
+            projected:
+              defaultMode: 288  # 0440
+              sources:
+                - secret:
+                    name: RELEASE-NAME-vaultwarden
+                    items:
+                      - key: admin-token
+                        path: admin-token
+                - secret:
+                    name: pg-app
+                    items:
+                      - key: uri
+                        path: database-url
+
+  - it: rolls the pod when an inline credential changes
+    template: deployment.yaml
+    set:
+      admin:
+        token: admin-secret
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/secret"]
+
+  - it: does not add a checksum for existing Secrets only
+    template: deployment.yaml
+    set:
+      admin:
+        existingSecret:
+          name: my-admin
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: probes /alive at the root by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /alive
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /alive
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /alive
+
+  - it: follows the sub-path of domain in every probe
+    template: deployment.yaml
+    set:
+      domain: https://example.com/vault/
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /vault/alive
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /vault/alive
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /vault/alive
+
+  - it: keeps the root path for a domain with a port and no sub-path
+    template: deployment.yaml
+    set:
+      domain: https://example.com:8443
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /alive
+
+  - it: omits the startup probe when disabled
+    template: deployment.yaml
+    set:
+      startupProbe:
+        enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+
+  - it: mounts the chart-created claim by default
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-vaultwarden
+
+  - it: mounts an existing claim when set
+    template: deployment.yaml
+    set:
+      persistence:
+        existingClaim: vaultwarden
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: vaultwarden
+
+  - it: falls back to an emptyDir when persistence is disabled
+    template: deployment.yaml
+    set:
+      persistence:
+        enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            emptyDir: {}
+
+  - it: passes security contexts, scheduling and extra volumes through
+    template: deployment.yaml
+    set:
+      podSecurityContext:
+        fsGroup: 1000
+      securityContext:
+        readOnlyRootFilesystem: true
+      nodeSelector:
+        disk: ssd
+      tolerations:
+        - key: dedicated
+          operator: Exists
+      affinity:
+        nodeAffinity: {}
+      priorityClassName: high
+      extraVolumes:
+        - name: tmp
+          emptyDir: {}
+      extraVolumeMounts:
+        - name: tmp
+          mountPath: /tmp
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1000
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.nodeSelector.disk
+          value: ssd
+      - equal:
+          path: spec.template.spec.tolerations[0].key
+          value: dedicated
+      - exists:
+          path: spec.template.spec.affinity.nodeAffinity
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: high
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+
+  - it: fails when a credential has both an inline value and an existing Secret
+    template: deployment.yaml
+    set:
+      smtp:
+        password: pw
+        existingSecret:
+          name: smtp
+    asserts:
+      - failedTemplate:
+          errorMessage: "smtp: set only one of password or existingSecret.name, not both"
+
+  - it: fails on a domain without a scheme
+    template: deployment.yaml
+    set:
+      domain: vault.example.com
+    asserts:
+      - failedTemplate:
+          errorMessage: domain must be a full URL starting with http:// or https://, got "vault.example.com"
+
+  - it: fails on an unknown smtp.security
+    template: deployment.yaml
+    set:
+      smtp:
+        host: smtp.example.com
+        from: vault@example.com
+        security: tls
+    asserts:
+      - failedTemplate:
+          errorMessage: smtp.security must be one of starttls, force_tls, off, got "tls"
+
+  - it: fails when smtp.host is set without smtp.from
+    template: deployment.yaml
+    set:
+      smtp:
+        host: smtp.example.com
+    asserts:
+      - failedTemplate:
+          errorMessage: smtp.from is required when smtp.host is set
+
+  - it: fails when push is enabled without credentials
+    template: deployment.yaml
+    set:
+      push:
+        enabled: true
+        installationId: id
+    asserts:
+      - failedTemplate:
+          errorMessage: >-
+            push.enabled requires push.installationId and one of push.installationKey or
+            push.existingSecret.name
+
+  - it: fails when sso is enabled without an authority
+    template: deployment.yaml
+    set:
+      sso:
+        enabled: true
+        clientId: vaultwarden
+    asserts:
+      - failedTemplate:
+          errorMessage: sso.enabled requires sso.authority and sso.clientId
+
+  - it: fails when env duplicates a structured value
+    template: deployment.yaml
+    set:
+      domain: https://vault.example.com
+      env:
+        DOMAIN: https://other.example.com
+    asserts:
+      - failedTemplate:
+          errorMessage: >-
+            env.DOMAIN conflicts with a variable the chart already sets from a structured value; set
+            it there instead
+
+  - it: fails when env sets the plain form of a file-mounted credential
+    template: deployment.yaml
+    set:
+      admin:
+        existingSecret:
+          name: my-admin
+      env:
+        ADMIN_TOKEN: plain
+    asserts:
+      - failedTemplate:
+          errorMessage: >-
+            env.ADMIN_TOKEN conflicts with a variable the chart already sets from a structured
+            value; set it there instead
+
+  - it: allows the plain form of a credential in env when the chart does not manage it
+    template: deployment.yaml
+    set:
+      env:
+        ADMIN_TOKEN: plain
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ADMIN_TOKEN
+            value: plain

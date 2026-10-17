@@ -40,26 +40,46 @@
       groupName: "technitium dns-server",
       commitMessageTopic: "Technitium DNS server",
     },
+    {
+      // Same for Vaultwarden. Its Docker Hub repo also publishes "-alpine" variants of every
+      // release; Docker versioning treats the suffix as a compatibility marker, so a plain
+      // "1.37.4" appVersion only ever moves to the next plain tag.
+      matchDepNames: ["vaultwarden/server"],
+      groupName: "vaultwarden server",
+      commitMessageTopic: "Vaultwarden server",
+    },
   ],
 
-  // appVersion in Chart.yaml is the source of truth for the image tag (values.yaml
-  // image.tag defaults to .Chart.AppVersion). Track the Docker Hub tag and rewrite it here.
+  // appVersion in each Chart.yaml is the source of truth for its image tag (values.yaml
+  // image.tag defaults to .Chart.AppVersion). Track the upstream Docker Hub tag and rewrite it
+  // there. One manager per chart: the file pattern is what ties an appVersion to its image, so
+  // a manager matching every Chart.yaml would track every chart against the same image.
   customManagers: [
     {
       customType: "regex",
-      managerFilePatterns: ["/^charts/.+/Chart\\.yaml$/"],
+      managerFilePatterns: ["/^charts/technitium-dns-server/Chart\\.yaml$/"],
       matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
       depNameTemplate: "technitium/dns-server",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://index.docker.io",
     },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^charts/vaultwarden/Chart\\.yaml$/"],
+      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      depNameTemplate: "vaultwarden/server",
+      datasourceTemplate: "docker",
+      registryUrlTemplate: "https://index.docker.io",
+    },
   ],
 
-  // When a PR rewrites appVersion, bump the chart's own version so the release job publishes
-  // a new artifact. Actions/flake bumps do not touch Chart.yaml, so they do not trigger this.
+  // When a PR rewrites a chart's appVersion (or an image tag in its values.yaml), bump that
+  // chart's own version so the release job publishes a new artifact. {{packageFileDir}} scopes
+  // the bump to the Chart.yaml next to the file Renovate changed, so one chart's update never
+  // bumps another chart. Actions/flake bumps have no Chart.yaml beside them, so they bump nothing.
   bumpVersions: [
     {
-      filePatterns: ["charts/**/Chart.yaml"],
+      filePatterns: ["{{packageFileDir}}/Chart.yaml"],
       matchStrings: ["\\sversion:\\s*(?<version>\\S+)"],
       bumpType: "patch",
     },

@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "vaultwarden.fullname" . }}-test-connection"
+  labels:
+    {{- include "vaultwarden.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: alive-check
+      image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
+      imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          base="http://{{ include "vaultwarden.fullname" . }}:{{ .Values.service.port }}{{ include "vaultwarden.basePath" . }}"
+
+          # /alive needs no auth and answers once the server is up and its database reachable.
+          curl -sf --max-time 10 "${base}/alive"
+          echo
+
+          # /api/config is served by the API layer itself, so a reply proves requests reach
+          # Vaultwarden's router rather than just the listening socket.
+          response="$(curl -sf --max-time 10 "${base}/api/config")"
+          echo "${response}"
+          echo "${response}" | grep -q '"version"'

@@ -1,0 +1,3 @@
+---
+# Everything at its defaults: SQLite on a chart-created PVC, running as the image's own root user.
+domain: http://vaultwarden.ci.local

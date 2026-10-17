@@ -1,0 +1,20 @@
+---
+apiVersion: v2
+name: vaultwarden
+description: Unofficial Bitwarden-compatible password manager server with the web vault, admin panel, SSO and SMTP.
+type: application
+version: 0.1.0
+appVersion: "1.37.4"
+keywords:
+  - vaultwarden
+  - bitwarden
+  - password-manager
+  - security
+home: https://github.com/dani-garcia/vaultwarden
+sources:
+  - https://github.com/Charg/charts
+  - https://github.com/dani-garcia/vaultwarden
+maintainers:
+  - name: chris
+    email: chris@syn.sh
+icon: https://raw.githubusercontent.com/dani-garcia/vaultwarden/main/resources/vaultwarden-icon.svg

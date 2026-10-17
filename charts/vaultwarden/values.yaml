@@ -1,0 +1,339 @@
+---
+# Default values for vaultwarden.
+#
+# Vaultwarden runs as a single-replica Deployment. There is deliberately no replicaCount: the
+# default SQLite database lives on a ReadWriteOnce volume, attachments and sends are written to
+# that same /data volume, and live sync notifications (WebSocket) are held in process memory, so
+# a second replica would either fail to mount the volume or serve stale state to half the clients.
+#
+# Configuration precedence, which matters on every upgrade: settings saved through the admin
+# panel (/admin) are written to /data/config.json, and Vaultwarden gives that file priority over
+# environment variables. A value set here and later changed in the admin panel stops taking
+# effect, silently, until the override is reset in the panel (or config.json is removed). Treat
+# this file as the source of truth by leaving the admin panel's settings alone, or disable the
+# panel by leaving admin.token unset.
+
+image:
+  # -- Image repository.
+  repository: docker.io/vaultwarden/server
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to .Chart.AppVersion when empty. Append "-alpine" here for the Alpine
+  # variant of the same release.
+  tag: ""
+
+# -- References to Secrets holding credentials for a private image registry.
+imagePullSecrets: []
+
+# -- Overrides the chart name portion of generated resource names.
+nameOverride: ""
+
+# -- Overrides the fully generated resource name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the pod.
+  create: true
+  # -- Automount the ServiceAccount API token into the pod. Vaultwarden never talks to the
+  # Kubernetes API, so the token is off by default.
+  automount: false
+  # -- Annotations added to the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount to use. Generated from the fullname template when empty and create is true.
+  name: ""
+
+# -- Annotations added to the pod.
+podAnnotations: {}
+
+# -- Labels added to the pod.
+podLabels: {}
+
+# -- Pod-level securityContext. Upstream's image runs as root by default. To run unprivileged,
+# set runAsUser/runAsGroup/fsGroup here (e.g. 1000) so the data volume and the mounted secret
+# files are writable and readable by that user; see README.md for a hardened example.
+podSecurityContext: {}
+
+# -- Container-level securityContext.
+securityContext: {}
+
+# -- Port Vaultwarden listens on inside the container, sent as ROCKET_PORT. Defaults to 8080
+# rather than the image's 80 so the same chart works unchanged when running as a non-root user,
+# which cannot bind a port below 1024.
+containerPort: 8080
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port for HTTP traffic, including the WebSocket notifications endpoint (Vaultwarden
+  # 1.29+ serves both on the one port).
+  port: 80
+  # -- Annotations added to the Service.
+  annotations: {}
+
+# -- DOMAIN: the full public URL clients reach Vaultwarden at, including scheme, e.g.
+# "https://vault.example.com", or "https://example.com/vault" to serve under a sub-path. Required
+# in practice for anything beyond a local test: WebAuthn/passkeys, attachment downloads, email
+# links and U2F all derive from it. A sub-path here also moves every route under that prefix,
+# and the chart follows it for the probes and the helm test.
+domain: ""
+
+signups:
+  # -- SIGNUPS_ALLOWED (Boolean): let anyone who can reach the server create an account. Unset
+  # leaves Vaultwarden's own default (true). Invitations from an organization still work when
+  # this is false.
+  allowed: null
+  # -- SIGNUPS_VERIFY (Boolean): require email verification before a new account can log in.
+  # Requires SMTP. Unset leaves Vaultwarden's own default.
+  verify: null
+  # -- SIGNUPS_DOMAINS_WHITELIST (comma separated): only these email domains may sign up, even
+  # when signups.allowed is false.
+  domainsWhitelist: []
+
+invitations:
+  # -- INVITATIONS_ALLOWED (Boolean): let organization admins invite users who have no account
+  # yet. Unset leaves Vaultwarden's own default (true).
+  allowed: null
+  # -- INVITATION_ORG_NAME: name used in invitation emails and the TOTP issuer.
+  orgName: ""
+
+# -- The admin panel (/admin) token. Unset (and no existingSecret) leaves the admin panel
+# disabled, which is Vaultwarden's own behaviour when ADMIN_TOKEN is absent. Use an Argon2 PHC
+# string (`vaultwarden hash`, or `argon2` on the command line) rather than a plain token:
+# Vaultwarden logs a warning on every start with a plain one. Mounted as a file and passed as
+# ADMIN_TOKEN_FILE, never as an environment variable.
+admin:
+  # -- Admin token. Chart generates a Secret from this value when set. Mutually exclusive with
+  # existingSecret.name.
+  token: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding the admin token, instead of token.
+    name: ""
+    # -- Key within existingSecret.name holding the admin token.
+    key: admin-token
+
+# -- The database connection. Unset (and no existingSecret) uses SQLite at /data/db.sqlite3 on
+# the persistent volume, which is Vaultwarden's default and right for most installs. The URL
+# carries the password, so it is always mounted as a file (DATABASE_URL_FILE), never put in the
+# pod spec.
+database:
+  # -- DATABASE_URL, e.g. "postgresql://user:password@host:5432/vaultwarden" or
+  # "mysql://user:password@host:3306/vaultwarden". Chart generates a Secret from this value when
+  # set. Mutually exclusive with existingSecret.name.
+  url: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding the full database URL, instead of url.
+    # CloudNativePG's generated <cluster>-app Secret has a usable "uri" key.
+    name: ""
+    # -- Key within existingSecret.name holding the database URL.
+    key: database-url
+
+smtp:
+  # -- SMTP_HOST. Every other smtp value is ignored by Vaultwarden while this is empty.
+  host: ""
+  # -- SMTP_FROM: sender address. Required by Vaultwarden when host is set.
+  from: ""
+  # -- SMTP_FROM_NAME: sender display name. Unset leaves Vaultwarden's own default.
+  fromName: ""
+  # -- SMTP_PORT (Integer). Unset leaves Vaultwarden's own default for the chosen security mode
+  # (587 for starttls, 465 for force_tls, 25 for off).
+  port: null
+  # -- SMTP_SECURITY: one of "starttls", "force_tls" or "off". Unset leaves Vaultwarden's own
+  # default (starttls).
+  security: ""
+  # -- SMTP_USERNAME.
+  username: ""
+  # -- SMTP password. Chart generates a Secret from this value when set and passes it as
+  # SMTP_PASSWORD_FILE. Mutually exclusive with existingSecret.name.
+  password: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding the SMTP password, instead of password.
+    name: ""
+    # -- Key within existingSecret.name holding the SMTP password.
+    key: smtp-password
+
+# -- Mobile push notifications through Bitwarden's relay. Request an installation id and key at
+# https://bitwarden.com/host (pick the region matching relayUri/identityUri).
+push:
+  # -- PUSH_ENABLED (Boolean). Requires installationId and an installation key. Unset leaves
+  # Vaultwarden's own default (false).
+  enabled: null
+  # -- PUSH_INSTALLATION_ID.
+  installationId: ""
+  # -- Installation key. Chart generates a Secret from this value when set and passes it as
+  # PUSH_INSTALLATION_KEY_FILE. Mutually exclusive with existingSecret.name.
+  installationKey: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding the installation key, instead of installationKey.
+    name: ""
+    # -- Key within existingSecret.name holding the installation key.
+    key: push-installation-key
+  # -- PUSH_RELAY_URI. Unset leaves Vaultwarden's own default (the US relay); set
+  # "https://api.bitwarden.eu" for an EU installation id.
+  relayUri: ""
+  # -- PUSH_IDENTITY_URI. Unset leaves Vaultwarden's own default; set
+  # "https://identity.bitwarden.eu" for an EU installation id.
+  identityUri: ""
+
+# -- OpenID Connect login (Vaultwarden 1.35+). The client secret follows the same
+# file-mounted-secret pattern as admin.token (SSO_CLIENT_SECRET_FILE).
+sso:
+  # -- SSO_ENABLED (Boolean). Requires authority and clientId. Unset leaves Vaultwarden's own
+  # default (false).
+  enabled: null
+  # -- SSO_ONLY (Boolean): disable master-password login and force every login through SSO.
+  only: null
+  # -- SSO_AUTHORITY: the issuer URL, without the /.well-known/openid-configuration suffix and
+  # without a trailing slash.
+  authority: ""
+  # -- SSO_CLIENT_ID.
+  clientId: ""
+  # -- OIDC client secret. Chart generates a Secret from this value when set. Mutually exclusive
+  # with existingSecret.name.
+  clientSecret: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding the OIDC client secret, instead of clientSecret.
+    name: ""
+    # -- Key within existingSecret.name holding the OIDC client secret.
+    key: sso-client-secret
+  # -- SSO_SCOPES (space separated): scopes to request; "openid" is implicit. Empty leaves
+  # Vaultwarden's own default ("email profile").
+  scopes: []
+  # -- SSO_PKCE (Boolean). Unset leaves Vaultwarden's own default (true).
+  pkce: null
+  # -- SSO_SIGNUPS_MATCH_EMAIL (Boolean): link an SSO login to an existing account with the same
+  # email. Unset leaves Vaultwarden's own default (true).
+  signupsMatchEmail: null
+
+# -- Any other Vaultwarden setting, as a flat map of environment variable name to value, e.g.
+# {DISABLE_ICON_DOWNLOAD: "true", LOG_LEVEL: "warn", IP_HEADER: "X-Forwarded-For"}. See
+# upstream's .env.template for the full list. Rendered after the structured variables above, in
+# key order. A key the chart already renders from a structured value (e.g. DOMAIN), or the
+# plain form of a secret the chart mounts as a file (e.g. ADMIN_TOKEN), fails the template:
+# Vaultwarden refuses to start when both X and X_FILE are set.
+env: {}
+
+# -- Additional environment variables as a list of name/value(From) entries, appended after
+# env above. Use this for valueFrom references; prefer env for plain values.
+extraEnvVars: []
+
+# -- envFrom sources (ConfigMaps or Secrets) added to the container, e.g. to load a whole
+# Secret of Vaultwarden settings at once.
+extraEnvFrom: []
+
+ingress:
+  # -- Create an Ingress.
+  enabled: false
+  # -- IngressClass to use.
+  className: ""
+  # -- Annotations added to the Ingress.
+  annotations: {}
+  # -- Hosts and paths routed to Vaultwarden.
+  hosts:
+    - host: vaultwarden.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration blocks, as in a standard networking.k8s.io/v1 Ingress spec.
+  tls: []
+
+httpRoute:
+  # -- Create a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires the Gateway API
+  # CRDs and a Gateway to attach to.
+  enabled: false
+  # -- Annotations added to the HTTPRoute.
+  annotations: {}
+  # -- Gateways the route attaches to, e.g. [{name: public, namespace: gateway, sectionName: https}].
+  parentRefs: []
+  # -- Hostnames the route matches.
+  hostnames: []
+  # -- Matches for the single rule forwarding to the Service, as in an HTTPRoute rule.
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+
+persistence:
+  # -- Persist /data (the SQLite database, attachments, sends, RSA keys, icon cache and
+  # config.json). Disabling it uses an emptyDir: every pod restart then loses all data, so only
+  # do that for throwaway testing.
+  enabled: true
+  # -- Use an existing PersistentVolumeClaim instead of creating one. Every other persistence
+  # value except mountPath is ignored when set.
+  existingClaim: ""
+  # -- Size of the PersistentVolumeClaim.
+  size: 1Gi
+  # -- StorageClass for the PersistentVolumeClaim. Empty string uses the cluster's default StorageClass.
+  storageClass: ""
+  # -- Access modes for the PersistentVolumeClaim.
+  accessModes:
+    - ReadWriteOnce
+  # -- Annotations added to the PersistentVolumeClaim.
+  annotations: {}
+  # -- Keep the chart-created PersistentVolumeClaim on `helm uninstall` (helm.sh/resource-policy:
+  # keep). A password vault is not something to lose to an uninstall typo; delete the claim by
+  # hand once it is genuinely no longer needed.
+  keep: true
+
+# -- Additional volumes added to the pod.
+extraVolumes: []
+
+# -- Additional volumeMounts added to the container.
+extraVolumeMounts: []
+
+# -- Deployment strategy. Recreate by default: the RWO data volume cannot be attached to the new
+# pod while the old one still holds it, and two processes on one SQLite file is corruption risk.
+strategy:
+  type: Recreate
+
+# Every probe targets GET <base path>/alive on the HTTP port, which needs no authentication and
+# returns as soon as the server is up. The base path follows the sub-path of domain, if any.
+startupProbe:
+  # -- Enable a startup probe that gates the readiness and liveness probes until the server is
+  # up. Database migrations run at start and can take a while on a large vault after an upgrade.
+  enabled: true
+  # -- Seconds between startup checks.
+  periodSeconds: 5
+  # -- Seconds before a startup check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures allowed before the container is considered to have failed to start.
+  failureThreshold: 60
+
+readinessProbe:
+  # -- Seconds between readiness checks.
+  periodSeconds: 10
+  # -- Seconds before a readiness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the pod is marked not ready.
+  failureThreshold: 3
+
+livenessProbe:
+  # -- Seconds between liveness checks.
+  periodSeconds: 20
+  # -- Seconds before a liveness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the container is restarted.
+  failureThreshold: 6
+
+# -- Resource requests and limits for the container.
+resources: {}
+
+# -- Node selector for pod scheduling.
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling.
+tolerations: []
+
+# -- Affinity rules for pod scheduling.
+affinity: {}
+
+# -- PriorityClass for the pod.
+priorityClassName: ""
+
+test:
+  image:
+    # -- Image used by the helm test hook that calls GET <base path>/alive through the Service.
+    repository: curlimages/curl
+    # -- Tag of the test image.
+    tag: "8.22.0"
+    # -- Pull policy of the test image.
+    pullPolicy: IfNotPresent

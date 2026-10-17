@@ -1,0 +1,43 @@
+Vaultwarden is running as a single-replica Deployment.
+
+IMPORTANT: settings saved through the admin panel are written to /data/config.json and take
+priority over every value this chart passes as an environment variable. If a value changed
+here does not seem to take effect after `helm upgrade`, check the admin panel for an override.
+{{- if not .Values.domain }}
+
+WARNING: domain is unset. Set it to the public URL clients use (e.g. https://vault.example.com):
+WebAuthn/passkeys, attachment downloads and email links all depend on it.
+{{- end }}
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled. /data is an emptyDir and every vault, attachment and key is
+lost when the pod restarts. Do not use this for anything but throwaway testing.
+{{- end }}
+
+1. Reach Vaultwarden:
+{{- if .Values.ingress.enabled }}
+   {{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ include "vaultwarden.basePath" $ }}
+   {{- end }}
+{{- else if .Values.httpRoute.enabled }}
+   {{- range .Values.httpRoute.hostnames }}
+   https://{{ . }}{{ include "vaultwarden.basePath" $ }}
+   {{- end }}
+{{- else }}
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "vaultwarden.fullname" . }} 8080:{{ .Values.service.port }}
+
+   Then open http://127.0.0.1:8080{{ include "vaultwarden.basePath" . }}. Browsers only allow the
+   web vault's crypto APIs on https:// or localhost, so put it behind TLS before real use.
+{{- end }}
+{{- if or .Values.admin.token .Values.admin.existingSecret.name }}
+
+2. The admin panel is enabled at {{ include "vaultwarden.basePath" . }}/admin.
+{{- else }}
+
+2. The admin panel is disabled (no admin.token / admin.existingSecret configured).
+{{- end }}
+
+3. Verify the deployment:
+
+   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
