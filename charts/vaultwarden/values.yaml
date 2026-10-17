@@ -334,6 +334,6 @@ test:
     # -- Image used by the helm test hook that calls GET <base path>/alive through the Service.
     repository: curlimages/curl
     # -- Tag of the test image.
-    tag: "8.22.0"
+    tag: "8.23.0"
     # -- Pull policy of the test image.
     pullPolicy: IfNotPresent
