@@ -3,7 +3,7 @@ apiVersion: v2
 name: technitium-dns-server
 description: Self-hosted authoritative and recursive DNS server with a web console, DNSSEC, and ad/malware blocking.
 type: application
-version: 0.4.3
+version: 0.4.4
 appVersion: "15.4.0"
 keywords:
   - dns
@@ -16,5 +16,5 @@ sources:
   - https://github.com/TechnitiumSoftware/DnsServer
 maintainers:
   - name: chris
-    email: chris@accordos.io
+    email: chris@syn.sh
 icon: https://technitium.com/img/logo.png
