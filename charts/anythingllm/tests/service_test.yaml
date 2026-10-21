@@ -1,0 +1,42 @@
+---
+suite: test service
+templates:
+  - service.yaml
+tests:
+  - it: exposes the http port on 80, targeting the named container port
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports
+          value:
+            - name: http
+              port: 80
+              targetPort: http
+              protocol: TCP
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: anythingllm
+            app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: honours type, port and annotations
+    set:
+      service:
+        type: LoadBalancer
+        port: 8080
+        annotations:
+          metallb.universe.tf/address-pool: internal
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+      - equal:
+          path: spec.ports[0].port
+          value: 8080
+      - equal:
+          path: metadata.annotations["metallb.universe.tf/address-pool"]
+          value: internal

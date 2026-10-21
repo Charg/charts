@@ -1,0 +1,36 @@
+AnythingLLM is running as a single-replica Deployment.
+
+IMPORTANT: settings saved in the web UI are written to a .env file on the data volume, but every
+variable this chart sets (env, auth, encryption) takes precedence over that file on each start.
+A chart-managed setting changed in the UI reverts on the next pod restart: change it here instead.
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled. The data volume is an emptyDir and every workspace, document,
+chat and the encryption key for saved provider credentials are lost when the pod restarts. Do not
+use this for anything but throwaway testing.
+{{- end }}
+{{- if not (or .Values.auth.password .Values.auth.passwordExistingSecret.name) }}
+
+NOTE: auth.password is unset. Until a password or multi-user mode is enabled in the UI
+(Settings > Security), anyone who can reach the URL has full admin access.
+{{- end }}
+
+1. Reach AnythingLLM:
+{{- if .Values.ingress.enabled }}
+   {{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+   {{- end }}
+{{- else if .Values.httpRoute.enabled }}
+   {{- range .Values.httpRoute.hostnames }}
+   https://{{ . }}
+   {{- end }}
+{{- else }}
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "anythingllm.fullname" . }} 3001:{{ .Values.service.port }}
+
+   Then open http://127.0.0.1:3001.
+{{- end }}
+
+2. Verify the deployment:
+
+   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}

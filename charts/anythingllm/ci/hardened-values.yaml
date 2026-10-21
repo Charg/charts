@@ -1,0 +1,25 @@
+---
+# The locked-down profile README.md recommends: no capabilities, no privilege escalation, the
+# bundled Chromium told to run without its sandbox, and every credential supplied. Proves the
+# image starts with nothing beyond its own user, and that Secret-backed variables reach it.
+auth:
+  jwtSecret: ci-jwt-secret-0123456789
+  password: ci-password
+encryption:
+  key: ci-sig-key-0123456789abcdef
+  salt: ci-sig-salt-0123456789abcdef
+env:
+  ANYTHINGLLM_CHROMIUM_ARGS: "--no-sandbox,--disable-setuid-sandbox"
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

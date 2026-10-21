@@ -1,0 +1,10 @@
+---
+# Exercises Ingress rendering and admission. kind has no ingress controller installed, so
+# this proves the resource is accepted by the API server, not that traffic flows through it.
+ingress:
+  enabled: true
+  hosts:
+    - host: anythingllm.ci.local
+      paths:
+        - path: /
+          pathType: Prefix
