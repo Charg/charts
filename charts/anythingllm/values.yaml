@@ -1,0 +1,263 @@
+---
+# Default values for anythingllm.
+#
+# AnythingLLM runs as a single-replica Deployment. There is deliberately no replicaCount: its
+# SQLite database, vector store (LanceDB by default), uploaded documents and model cache all live
+# on one ReadWriteOnce volume, and agent chats hold a WebSocket to the pod that started them, so a
+# second replica would either fail to mount the volume or corrupt the database.
+#
+# Configuration precedence, which matters on every upgrade: settings saved through the web UI are
+# written to the server's .env file, which this chart persists on the data volume so they survive
+# a restart. On start the server loads that file without overriding variables already in its
+# environment, so anything this chart sets (env, the credentials below) wins over the UI: a
+# chart-managed setting changed in the UI takes effect until the pod restarts, then reverts. Set
+# each setting in exactly one place: here for what should be declarative, the UI for the rest.
+
+image:
+  # -- Image repository.
+  repository: docker.io/mintplexlabs/anythingllm
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  tag: ""
+
+# -- References to Secrets holding credentials for a private image registry.
+imagePullSecrets: []
+
+# -- Overrides the chart name portion of generated resource names.
+nameOverride: ""
+
+# -- Overrides the fully generated resource name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the pod.
+  create: true
+  # -- Automount the ServiceAccount API token into the pod. AnythingLLM never talks to the
+  # Kubernetes API, so the token is off by default.
+  automount: false
+  # -- Annotations added to the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount to use. Generated from the fullname template when empty and create is true.
+  name: ""
+
+# -- Annotations added to the pod.
+podAnnotations: {}
+
+# -- Labels added to the pod.
+podLabels: {}
+
+# -- Pod-level securityContext. The image runs as its own unprivileged user (1000:1000); fsGroup
+# makes the data volume writable by that user. OnRootMismatch skips the recursive chown on every
+# start once ownership is right, which matters as the document and vector store grows.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+
+# -- Container-level securityContext. A read-only root filesystem is not supported: the entrypoint
+# runs `prisma generate` into the image's node_modules on every start. The bundled Chromium (used
+# to scrape web pages into documents) needs its sandbox, which upstream grants with the SYS_ADMIN
+# capability; to drop all capabilities instead, pass the sandbox-disabling flags through env, see
+# ANYTHINGLLM_CHROMIUM_ARGS in README.md.
+securityContext: {}
+
+# -- Port the server listens on inside the container, sent as SERVER_PORT.
+containerPort: 3001
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port for HTTP traffic, including the WebSocket used by agent chats.
+  port: 80
+  # -- Annotations added to the Service.
+  annotations: {}
+
+# -- DISABLE_TELEMETRY (Boolean). AnythingLLM sends anonymous usage telemetry unless this is true.
+# Defaults to true here; set false to opt back in.
+disableTelemetry: true
+
+# Credentials. AnythingLLM reads none of these from files, so each is passed as an environment
+# variable referencing a Secret (never a literal in the pod spec): either the chart-generated one,
+# from the inline value, or an operator-supplied existingSecret.
+
+auth:
+  # -- JWT_SECRET: seeds login session tokens. Unset leaves AnythingLLM to generate one the first
+  # time a password or multi-user mode is enabled in the UI, saved to the persisted .env. Setting
+  # it (or password) marks onboarding complete, so the first-run wizard is skipped: configure the
+  # LLM through env or the settings page instead. At least 12 characters. Mutually exclusive with
+  # jwtSecretExistingSecret.name.
+  jwtSecret: ""
+  jwtSecretExistingSecret:
+    # -- Name of an operator-supplied Secret holding JWT_SECRET, instead of jwtSecret.
+    name: ""
+    # -- Key within jwtSecretExistingSecret.name holding JWT_SECRET.
+    key: jwt-secret
+  # -- AUTH_TOKEN: the single password guarding the instance in single-user mode. Ignored once
+  # multi-user mode is enabled in the UI, where each user has their own login. Mutually exclusive
+  # with passwordExistingSecret.name.
+  password: ""
+  passwordExistingSecret:
+    # -- Name of an operator-supplied Secret holding AUTH_TOKEN, instead of password.
+    name: ""
+    # -- Key within passwordExistingSecret.name holding AUTH_TOKEN.
+    key: auth-token
+
+# -- SIG_KEY and SIG_SALT: the passphrase and salt AnythingLLM encrypts stored data with (provider
+# keys saved in the UI, connector credentials). Unset leaves AnythingLLM to generate a pair on first
+# start and save it to the persisted .env, which is fine as long as that file survives; set them
+# here to keep them in a Secret you back up independently of the volume. Set both or neither: with
+# only one, AnythingLLM generates a fresh pair on every start and earlier data no longer decrypts.
+encryption:
+  # -- SIG_KEY. Mutually exclusive with existingSecret.name.
+  key: ""
+  # -- SIG_SALT. Mutually exclusive with existingSecret.name.
+  salt: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding both SIG_KEY and SIG_SALT, instead of key and salt.
+    name: ""
+    # -- Key within existingSecret.name holding SIG_KEY.
+    keyKey: sig-key
+    # -- Key within existingSecret.name holding SIG_SALT.
+    saltKey: sig-salt
+
+# -- Any other AnythingLLM setting, as a flat map of environment variable name to value: the LLM
+# provider, embedder and vector database, e.g. {LLM_PROVIDER: litellm, LITE_LLM_BASE_PATH:
+# "http://litellm:4000", EMBEDDING_ENGINE: native, VECTOR_DB: lancedb}. See upstream's
+# docker/.env.example for the full list. Rendered after the variables above, in key order. A key
+# the chart already sets (e.g. SERVER_PORT, JWT_SECRET) fails the template. Put API keys in
+# extraEnvVars or extraEnvFrom rather than here.
+env: {}
+
+# -- Additional environment variables as a list of name/value(From) entries, appended after env
+# above. Use this for secretKeyRef references, e.g. LITE_LLM_API_KEY; prefer env for plain values.
+extraEnvVars: []
+
+# -- envFrom sources (ConfigMaps or Secrets) added to the container, e.g. to load a whole Secret
+# of provider API keys at once.
+extraEnvFrom: []
+
+ingress:
+  # -- Create an Ingress.
+  enabled: false
+  # -- IngressClass to use.
+  className: ""
+  # -- Annotations added to the Ingress. Document uploads go through this Ingress, so raise any
+  # request body limit the controller applies (ingress-nginx: nginx.ingress.kubernetes.io/proxy-body-size).
+  annotations: {}
+  # -- Hosts and paths routed to AnythingLLM.
+  hosts:
+    - host: anythingllm.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration blocks, as in a standard networking.k8s.io/v1 Ingress spec.
+  tls: []
+
+httpRoute:
+  # -- Create a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires the Gateway API
+  # CRDs and a Gateway to attach to.
+  enabled: false
+  # -- Annotations added to the HTTPRoute.
+  annotations: {}
+  # -- Gateways the route attaches to, e.g. [{name: public, namespace: gateway, sectionName: https}].
+  parentRefs: []
+  # -- Hostnames the route matches.
+  hostnames: []
+  # -- Matches for the single rule forwarding to the Service, as in an HTTPRoute rule.
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+
+persistence:
+  # -- Persist the data volume: the SQLite database, vector store, uploaded and parsed documents,
+  # downloaded embedding models and the UI's saved settings (.env). Disabling it uses an emptyDir:
+  # every pod restart then loses all data, so only do that for throwaway testing.
+  enabled: true
+  # -- Use an existing PersistentVolumeClaim instead of creating one. Every other persistence
+  # value is ignored when set. The chart lays the volume out as storage/ (mounted at
+  # /app/server/storage, the image's STORAGE_DIR) and server.env (mounted at /app/server/.env);
+  # to migrate a Docker install, copy its storage directory and .env into those two paths.
+  existingClaim: ""
+  # -- Size of the PersistentVolumeClaim. Documents, their vectors and the native embedding model
+  # all count against it.
+  size: 10Gi
+  # -- StorageClass for the PersistentVolumeClaim. Empty string uses the cluster's default StorageClass.
+  storageClass: ""
+  # -- Access modes for the PersistentVolumeClaim.
+  accessModes:
+    - ReadWriteOnce
+  # -- Annotations added to the PersistentVolumeClaim.
+  annotations: {}
+  # -- Keep the chart-created PersistentVolumeClaim on `helm uninstall` (helm.sh/resource-policy:
+  # keep). Delete the claim by hand once it is genuinely no longer needed.
+  keep: true
+
+# -- Additional volumes added to the pod.
+extraVolumes: []
+
+# -- Additional volumeMounts added to the container.
+extraVolumeMounts: []
+
+# -- Deployment strategy. Recreate by default: the RWO data volume cannot be attached to the new
+# pod while the old one still holds it, and two processes on one SQLite file is corruption risk.
+strategy:
+  type: Recreate
+
+# Every probe targets GET /api/ping on the HTTP port, which needs no authentication and is what
+# upstream's own Docker healthcheck calls.
+startupProbe:
+  # -- Enable a startup probe that gates the readiness and liveness probes until the server is
+  # up. Database migrations run on every start and can take a while after an upgrade.
+  enabled: true
+  # -- Seconds between startup checks.
+  periodSeconds: 5
+  # -- Seconds before a startup check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures allowed before the container is considered to have failed to start.
+  failureThreshold: 60
+
+readinessProbe:
+  # -- Seconds between readiness checks.
+  periodSeconds: 10
+  # -- Seconds before a readiness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the pod is marked not ready.
+  failureThreshold: 3
+
+livenessProbe:
+  # -- Seconds between liveness checks.
+  periodSeconds: 20
+  # -- Seconds before a liveness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the container is restarted.
+  failureThreshold: 6
+
+# -- Resource requests and limits for the container (init container included). The native
+# embedder and the bundled Chromium both run inside this container; budget about 2Gi of memory
+# when using either.
+resources: {}
+
+# -- Node selector for pod scheduling.
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling.
+tolerations: []
+
+# -- Affinity rules for pod scheduling.
+affinity: {}
+
+# -- PriorityClass for the pod.
+priorityClassName: ""
+
+test:
+  image:
+    # -- Image used by the helm test hook that calls GET /api/ping through the Service.
+    repository: curlimages/curl
+    # -- Tag of the test image.
+    tag: "8.23.0"
+    # -- Pull policy of the test image.
+    pullPolicy: IfNotPresent

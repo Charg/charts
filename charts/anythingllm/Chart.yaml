@@ -1,0 +1,20 @@
+---
+apiVersion: v2
+name: anythingllm
+description: All-in-one AI workspace with chat, RAG over your documents and agents, against any LLM provider.
+type: application
+version: 0.1.0
+appVersion: "1.18.0"
+keywords:
+  - anythingllm
+  - llm
+  - rag
+  - ai
+home: https://github.com/Mintplex-Labs/anything-llm
+sources:
+  - https://github.com/Charg/charts
+  - https://github.com/Mintplex-Labs/anything-llm
+maintainers:
+  - name: chris
+    email: chris@syn.sh
+icon: https://raw.githubusercontent.com/Mintplex-Labs/anything-llm/master/frontend/public/favicon.png

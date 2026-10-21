@@ -1,0 +1,4 @@
+---
+# Everything at its defaults: SQLite and LanceDB on a chart-created PVC, the image's own user.
+# No LLM is configured, so this proves the server boots, migrates and serves, not that it chats.
+{}

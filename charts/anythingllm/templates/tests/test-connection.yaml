@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "anythingllm.fullname" . }}-test-connection"
+  labels:
+    {{- include "anythingllm.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: ping-check
+      image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
+      imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          base="http://{{ include "anythingllm.fullname" . }}:{{ .Values.service.port }}"
+
+          # /api/ping needs no auth and answers once the server is listening.
+          curl -sf --max-time 10 "${base}/api/ping"
+          echo
+
+          # /api/setup-complete reads system settings from the database, so a reply proves the
+          # Prisma migrations ran against the persisted SQLite file, not just that the port is open.
+          response="$(curl -sf --max-time 10 "${base}/api/setup-complete")"
+          echo "${response}"
+          echo "${response}" | grep -q '"results"'

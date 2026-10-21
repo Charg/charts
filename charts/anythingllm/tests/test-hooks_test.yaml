@@ -1,0 +1,27 @@
+---
+suite: test helm test hook
+templates:
+  - tests/test-connection.yaml
+tests:
+  - it: is a helm test hook that never carries the selector labels
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: test
+      - notExists:
+          path: metadata.labels["app.kubernetes.io/name"]
+
+  - it: checks /api/ping and /api/setup-complete through the Service
+    asserts:
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'base="http://RELEASE-NAME-anythingllm:80"'
+
+  - it: follows the Service port
+    set:
+      service:
+        port: 3001
+    asserts:
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'base="http://RELEASE-NAME-anythingllm:3001"'

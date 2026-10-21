@@ -1,0 +1,402 @@
+---
+suite: test deployment
+templates:
+  - deployment.yaml
+  - secret.yaml
+tests:
+  - it: runs a single replica with the Recreate strategy and the appVersion image by default
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/mintplexlabs/anythingllm:1.18.0
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: honours an explicit image tag in both containers
+    template: deployment.yaml
+    set:
+      image:
+        tag: 1.17.0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/mintplexlabs/anythingllm:1.17.0
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: docker.io/mintplexlabs/anythingllm:1.17.0
+
+  - it: runs as the image's own unprivileged user with a group-writable volume by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+
+  - it: renders only the chart-owned variables when nothing else is configured
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: SERVER_PORT
+              value: "3001"
+            - name: STORAGE_DIR
+              value: /app/server/storage
+            - name: DISABLE_TELEMETRY
+              value: "true"
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 3001
+
+  - it: lets telemetry be re-enabled
+    template: deployment.yaml
+    set:
+      disableTelemetry: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DISABLE_TELEMETRY
+            value: "false"
+
+  - it: mounts the storage directory and the .env file from one volume, prepared by the init container
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: data
+              mountPath: /app/server/storage
+              subPath: storage
+            - name: data
+              mountPath: /app/server/.env
+              subPath: server.env
+      - equal:
+          path: spec.template.spec.initContainers[0].command
+          value:
+            - sh
+            - -c
+            - mkdir -p /data/storage && touch /data/server.env
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - name: data
+              mountPath: /data
+      - equal:
+          path: spec.template.spec.volumes[0]
+          value:
+            name: data
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-anythingllm
+
+  - it: uses an existing claim when given
+    template: deployment.yaml
+    set:
+      persistence:
+        existingClaim: anythingllm-data
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
+          value: anythingllm-data
+
+  - it: falls back to an emptyDir when persistence is disabled
+    template: deployment.yaml
+    set:
+      persistence:
+        enabled: false
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0]
+          value:
+            name: data
+            emptyDir: {}
+
+  - it: probes /api/ping on the named port
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet
+          value:
+            path: /api/ping
+            port: http
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /api/ping
+            port: http
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /api/ping
+            port: http
+
+  - it: drops the startup probe when disabled
+    template: deployment.yaml
+    set:
+      startupProbe:
+        enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+
+  - it: passes inline credentials as references to the chart Secret, never as literals
+    template: deployment.yaml
+    set:
+      auth:
+        jwtSecret: jwt-secret-0123456789
+        password: hunter2
+      encryption:
+        key: sig-key
+        salt: sig-salt
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: SERVER_PORT
+              value: "3001"
+            - name: STORAGE_DIR
+              value: /app/server/storage
+            - name: DISABLE_TELEMETRY
+              value: "true"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: RELEASE-NAME-anythingllm
+                  key: jwt-secret
+            - name: AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: RELEASE-NAME-anythingllm
+                  key: auth-token
+            - name: SIG_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: RELEASE-NAME-anythingllm
+                  key: sig-key
+            - name: SIG_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: RELEASE-NAME-anythingllm
+                  key: sig-salt
+
+  - it: references existing Secrets with their own keys
+    template: deployment.yaml
+    set:
+      auth:
+        jwtSecretExistingSecret:
+          name: my-jwt
+          key: token
+      encryption:
+        existingSecret:
+          name: my-sig
+          keyKey: k
+          saltKey: s
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: JWT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: my-jwt
+                key: token
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SIG_KEY
+            valueFrom:
+              secretKeyRef:
+                name: my-sig
+                key: k
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SIG_SALT
+            valueFrom:
+              secretKeyRef:
+                name: my-sig
+                key: s
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: rolls the pod when an inline credential changes
+    template: deployment.yaml
+    set:
+      auth:
+        password: hunter2
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/secret"]
+
+  - it: renders env in key order after the chart's own variables, then extraEnvVars and extraEnvFrom
+    template: deployment.yaml
+    set:
+      env:
+        VECTOR_DB: lancedb
+        LLM_PROVIDER: litellm
+        LITE_LLM_MODEL_TOKEN_LIMIT: 32768
+      extraEnvVars:
+        - name: LITE_LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: litellm
+              key: api-key
+      extraEnvFrom:
+        - secretRef:
+            name: provider-keys
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: SERVER_PORT
+              value: "3001"
+            - name: STORAGE_DIR
+              value: /app/server/storage
+            - name: DISABLE_TELEMETRY
+              value: "true"
+            - name: LITE_LLM_MODEL_TOKEN_LIMIT
+              value: "32768"
+            - name: LLM_PROVIDER
+              value: litellm
+            - name: VECTOR_DB
+              value: lancedb
+            - name: LITE_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: api-key
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: provider-keys
+
+  - it: applies the container securityContext to the init container too
+    template: deployment.yaml
+    set:
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+
+  - it: passes scheduling values through
+    template: deployment.yaml
+    set:
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+        - key: dedicated
+          operator: Exists
+      priorityClassName: high
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/arch: amd64
+      - equal:
+          path: spec.template.spec.tolerations[0].key
+          value: dedicated
+      - equal:
+          path: spec.template.spec.priorityClassName
+          value: high
+
+  - it: fails when a credential is set both inline and from an existing Secret
+    template: deployment.yaml
+    set:
+      auth:
+        password: hunter2
+        passwordExistingSecret:
+          name: my-password
+    asserts:
+      - failedTemplate:
+          errorMessage: set only one of auth.password or auth.passwordExistingSecret.name, not both
+
+  - it: fails when the encryption pair is set both inline and from an existing Secret
+    template: deployment.yaml
+    set:
+      encryption:
+        key: sig-key
+        salt: sig-salt
+        existingSecret:
+          name: my-sig
+    asserts:
+      - failedTemplate:
+          errorMessage: set only one of encryption.key or encryption.existingSecret.name, not both
+
+  - it: fails on a short JWT secret
+    template: deployment.yaml
+    set:
+      auth:
+        jwtSecret: short
+    asserts:
+      - failedTemplate:
+          errorMessage: auth.jwtSecret must be at least 12 characters
+
+  - it: fails on an encryption key without its salt
+    template: deployment.yaml
+    set:
+      encryption:
+        key: sig-key
+    asserts:
+      - failedTemplate:
+          errorMessage: encryption.key and encryption.salt must be set together
+
+  - it: fails on an encryption salt without its key
+    template: deployment.yaml
+    set:
+      encryption:
+        salt: sig-salt
+    asserts:
+      - failedTemplate:
+          errorMessage: encryption.key and encryption.salt must be set together
+
+  - it: refuses env keys the chart sets itself
+    template: deployment.yaml
+    set:
+      env:
+        STORAGE_DIR: /storage
+    asserts:
+      - failedTemplate:
+          errorMessage: env.STORAGE_DIR is set by the chart; use its structured value instead (see values.yaml)
+
+  - it: refuses credentials as plain env, even when the structured value is unset
+    template: deployment.yaml
+    set:
+      env:
+        JWT_SECRET: jwt-secret-0123456789
+    asserts:
+      - failedTemplate:
+          errorMessage: env.JWT_SECRET is set by the chart; use its structured value instead (see values.yaml)

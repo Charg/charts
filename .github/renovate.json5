@@ -48,6 +48,14 @@
       groupName: "vaultwarden server",
       commitMessageTopic: "Vaultwarden server",
     },
+    {
+      // Same for AnythingLLM. Its Docker Hub repo also publishes "pg-", "railway-" and "render-"
+      // variants of every release plus floating "1.18"-style tags; only follow full plain releases.
+      matchDepNames: ["mintplexlabs/anythingllm"],
+      allowedVersions: "/^\\d+\\.\\d+\\.\\d+$/",
+      groupName: "anythingllm",
+      commitMessageTopic: "AnythingLLM",
+    },
   ],
 
   // appVersion in each Chart.yaml is the source of truth for its image tag (values.yaml
@@ -68,6 +76,14 @@
       managerFilePatterns: ["/^charts/vaultwarden/Chart\\.yaml$/"],
       matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
       depNameTemplate: "vaultwarden/server",
+      datasourceTemplate: "docker",
+      registryUrlTemplate: "https://index.docker.io",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^charts/anythingllm/Chart\\.yaml$/"],
+      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      depNameTemplate: "mintplexlabs/anythingllm",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://index.docker.io",
     },
