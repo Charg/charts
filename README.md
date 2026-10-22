@@ -5,6 +5,7 @@ Helm charts published as OCI artifacts to GitHub Packages, signed keylessly with
 | Chart | Description |
 | ----- | ----------- |
 | [anythingllm](charts/anythingllm) | All-in-one AI workspace with chat, RAG over your documents and agents, against any LLM provider. |
+| [hermes-agent](charts/hermes-agent) | Nous Research's self-improving AI agent with an OpenAI-compatible API server and web dashboard. |
 | [technitium-dns-server](charts/technitium-dns-server) | Self-hosted authoritative and recursive DNS server with a web console, DNSSEC, and ad/malware blocking. |
 | [vaultwarden](charts/vaultwarden) | Unofficial Bitwarden-compatible password manager server with the web vault, admin panel, SSO and SMTP. |
 

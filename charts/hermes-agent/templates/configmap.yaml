@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hermes-agent.fullname" . }}
+  labels:
+    {{- include "hermes-agent.labels" . | nindent 4 }}
+data:
+  # The managed config.yaml: every leaf here wins over the user config.yaml on the data volume.
+  config.yaml: |
+    {{- toYaml (.Values.config | default dict) | nindent 4 }}

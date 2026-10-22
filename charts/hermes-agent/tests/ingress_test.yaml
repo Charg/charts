@@ -1,0 +1,68 @@
+---
+suite: test ingress
+templates:
+  - ingress.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: routes each path to the Service port it names
+    set:
+      dashboard:
+        enabled: true
+      ingress:
+        enabled: true
+        className: traefik
+        hosts:
+          - host: hermes.example.com
+            paths:
+              - path: /
+                pathType: Prefix
+          - host: hermes-dashboard.example.com
+            paths:
+              - path: /
+                pathType: Prefix
+                port: dashboard
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: traefik
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service
+          value:
+            name: RELEASE-NAME-hermes-agent
+            port:
+              name: api
+      - equal:
+          path: spec.rules[1].http.paths[0].backend.service.port.name
+          value: dashboard
+
+  - it: refuses a route to the dashboard while it is disabled
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: hermes.example.com
+            paths:
+              - path: /
+                pathType: Prefix
+                port: dashboard
+    asserts:
+      - failedTemplate:
+          errorMessage: ingress path hermes.example.com/ routes to the dashboard port, but dashboard.enabled is false
+
+  - it: refuses an unknown port name
+    set:
+      ingress:
+        enabled: true
+        hosts:
+          - host: hermes.example.com
+            paths:
+              - path: /
+                pathType: Prefix
+                port: http
+    asserts:
+      - failedTemplate:
+          errorPattern: must be api or dashboard, got "http"

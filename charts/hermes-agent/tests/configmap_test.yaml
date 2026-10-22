@@ -1,0 +1,29 @@
+---
+suite: test managed config
+templates:
+  - configmap.yaml
+tests:
+  - it: renders an empty managed config by default
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |
+            {}
+
+  - it: renders config verbatim as the managed config.yaml, references unexpanded
+    set:
+      config:
+        model:
+          provider: custom
+          base_url: http://litellm.litellm.svc:4000/v1
+          default: gpt-5-mini
+          api_key: ${LITELLM_API_KEY}
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |
+            model:
+              api_key: ${LITELLM_API_KEY}
+              base_url: http://litellm.litellm.svc:4000/v1
+              default: gpt-5-mini
+              provider: custom

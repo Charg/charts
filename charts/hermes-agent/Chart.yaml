@@ -1,0 +1,20 @@
+---
+apiVersion: v2
+name: hermes-agent
+description: Nous Research's self-improving AI agent with an OpenAI-compatible API server and web dashboard.
+type: application
+version: 0.1.0
+appVersion: "v0.22.4"
+keywords:
+  - hermes
+  - agent
+  - llm
+  - ai
+home: https://github.com/NousResearch/hermes-agent
+sources:
+  - https://github.com/Charg/charts
+  - https://github.com/NousResearch/hermes-agent
+maintainers:
+  - name: chris
+    email: chris@syn.sh
+icon: https://github.com/NousResearch.png

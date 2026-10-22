@@ -1,0 +1,45 @@
+---
+# The minimal-privilege profile README.md recommends: every capability dropped except the six the
+# image's root-then-drop start needs, no privilege escalation, RuntimeDefault seccomp. Also runs
+# the dashboard behind basic auth, a managed config and a Secret-backed managedEnv entry, so the
+# managed .env carries quoting-sensitive values end to end.
+apiServer:
+  key: ci-api-server-key-0123456789
+  modelName: ci-hermes
+dashboard:
+  enabled: true
+  basicAuth:
+    username: admin
+    password: 'ci-pa"ss\word#1'
+    secret: ci-dashboard-signing-secret-0123456789abcdef
+config:
+  model:
+    provider: custom
+    base_url: http://127.0.0.1:9/v1
+    default: ci-model
+    api_key: ${CI_LLM_API_KEY}
+managedEnv:
+  - name: CI_LLM_API_KEY
+    value: ci-not-a-real-key
+  # The Secret does not exist: an optional reference that does not resolve is left out.
+  - name: CI_OPTIONAL_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: ci-hermes-agent-missing
+        key: value
+        optional: true
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+      - KILL

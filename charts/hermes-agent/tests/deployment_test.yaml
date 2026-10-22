@@ -1,0 +1,416 @@
+---
+suite: test deployment
+templates:
+  - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+set:
+  apiServer:
+    key: unit-api-server-key-0123
+tests:
+  - it: runs a single replica with the Recreate strategy and the appVersion image by default
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/nousresearch/hermes-agent:v0.22.4
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: docker.io/nousresearch/hermes-agent:v0.22.4
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - notExists:
+          path: spec.template.spec.securityContext
+
+  - it: honours an explicit image tag in both containers
+    template: deployment.yaml
+    set:
+      image:
+        tag: v0.22.3
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/nousresearch/hermes-agent:v0.22.3
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: docker.io/nousresearch/hermes-agent:v0.22.3
+
+  - it: keeps the image entrypoint and runs the gateway under s6
+    template: deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].command
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - gateway
+            - run
+
+  - it: points Hermes at the managed scope and sets nothing else in the container env by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: HERMES_MANAGED_DIR
+              value: /etc/hermes-managed
+
+  - it: writes the API server settings to the managed .env, with the key from the chart Secret
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_NAMES
+            value: API_SERVER_ENABLED API_SERVER_HOST API_SERVER_PORT API_SERVER_KEY
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_1
+            value: 0.0.0.0
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_3
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-hermes-agent
+                key: api-server-key
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: API_SERVER_KEY
+          any: true
+
+  - it: reads the API server key from an existingSecret
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: ""
+        existingSecret:
+          name: hermes-api
+          key: token
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_3
+            valueFrom:
+              secretKeyRef:
+                name: hermes-api
+                key: token
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/secret"]
+
+  - it: adds CORS origins and the advertised model name only when set
+    template: deployment.yaml
+    set:
+      apiServer:
+        corsOrigins: https://chat.example.com
+        modelName: hermes
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_NAMES
+            value: >-
+              API_SERVER_ENABLED API_SERVER_HOST API_SERVER_PORT API_SERVER_CORS_ORIGINS
+              API_SERVER_MODEL_NAME API_SERVER_KEY
+
+  - it: appends managedEnv after the chart's own variables, keeping valueFrom as-is
+    template: deployment.yaml
+    set:
+      managedEnv:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: openai
+              key: api-key
+        - name: HERMES_MAX_ITERATIONS
+          value: 40
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_NAMES
+            value: >-
+              API_SERVER_ENABLED API_SERVER_HOST API_SERVER_PORT API_SERVER_KEY OPENAI_API_KEY
+              HERMES_MAX_ITERATIONS
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_4
+            valueFrom:
+              secretKeyRef:
+                name: openai
+                key: api-key
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_5
+            value: "40"
+
+  - it: mounts the managed scope read-only from an in-memory volume
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: managed
+            mountPath: /etc/hermes-managed
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: managed
+            emptyDir:
+              medium: Memory
+              sizeLimit: 1Mi
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: chart-config
+            configMap:
+              name: RELEASE-NAME-hermes-agent
+
+  - it: writes double-quoted, escaped values and refuses multi-line ones in the init script
+    template: deployment.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: printf '%s="%s"\\n'
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].command[2]
+          pattern: multi-line values are not supported
+
+  - it: mounts the data volume at /opt/data and a memory-backed /dev/shm
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: data
+            mountPath: /opt/data
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-hermes-agent
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: shm
+            emptyDir:
+              medium: Memory
+              sizeLimit: 1Gi
+
+  - it: can drop the /dev/shm mount
+    template: deployment.yaml
+    set:
+      shm:
+        enabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: shm
+          any: true
+
+  - it: uses an emptyDir when persistence is disabled and an existing claim when given
+    template: deployment.yaml
+    set:
+      persistence:
+        enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            emptyDir: {}
+
+  - it: mounts an existing claim
+    template: deployment.yaml
+    set:
+      persistence:
+        existingClaim: hermes-data
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: hermes-data
+
+  - it: probes the public /health endpoint on the API port
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /health
+            port: api
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 60
+      - equal:
+          path: spec.template.spec.containers[0].ports
+          value:
+            - name: api
+              containerPort: 8642
+              protocol: TCP
+
+  - it: probes the dashboard when it is the only HTTP endpoint
+    template: deployment.yaml
+    set:
+      apiServer:
+        enabled: false
+        key: ""
+      dashboard:
+        enabled: true
+        basicAuth:
+          username: admin
+          password: pw
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /api/status
+            port: dashboard
+
+  - it: renders no ports or probes when neither the API server nor the dashboard runs
+    template: deployment.yaml
+    set:
+      apiServer:
+        enabled: false
+        key: ""
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].ports
+      - notExists:
+          path: spec.template.spec.containers[0].readinessProbe
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_NAMES
+            value: ""
+
+  - it: runs the dashboard on 0.0.0.0 with basic auth written to the managed .env
+    template: deployment.yaml
+    set:
+      dashboard:
+        enabled: true
+        publicUrl: https://hermes.example.com
+        basicAuth:
+          username: admin
+          password: pw
+          secret: signing
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: HERMES_MANAGED_DIR
+              value: /etc/hermes-managed
+            - name: HERMES_DASHBOARD
+              value: "1"
+            - name: HERMES_DASHBOARD_HOST
+              value: 0.0.0.0
+            - name: HERMES_DASHBOARD_PORT
+              value: "9119"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: dashboard
+            containerPort: 9119
+            protocol: TCP
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_NAMES
+            value: >-
+              API_SERVER_ENABLED API_SERVER_HOST API_SERVER_PORT HERMES_DASHBOARD_PUBLIC_URL
+              HERMES_DASHBOARD_BASIC_AUTH_USERNAME API_SERVER_KEY HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+              HERMES_DASHBOARD_BASIC_AUTH_SECRET
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_7
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-hermes-agent
+                key: dashboard-secret
+
+  - it: marks the dashboard signing secret optional in an existingSecret
+    template: deployment.yaml
+    set:
+      dashboard:
+        enabled: true
+        basicAuth:
+          username: admin
+          existingSecret:
+            name: dash
+    asserts:
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_6
+            valueFrom:
+              secretKeyRef:
+                name: dash
+                key: secret
+                optional: true
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_5
+            valueFrom:
+              secretKeyRef:
+                name: dash
+                key: password
+
+  - it: renders env as quoted container variables after the chart's own
+    template: deployment.yaml
+    set:
+      env:
+        HERMES_UID: 1000
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: HERMES_UID
+            value: "1000"
+
+  - it: changes the config checksum when config changes
+    template: deployment.yaml
+    set:
+      config:
+        model:
+          default: gpt-5-mini
+    asserts:
+      - notEqual:
+          path: spec.template.metadata.annotations["checksum/config"]
+          value: c50e6c0c443460453a2d61d3026a7e2593300e9d2a8c4a073175be41cef24298
+
+  - it: applies the securityContext to both containers
+    template: deployment.yaml
+    set:
+      securityContext:
+        allowPrivilegeEscalation: false
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.allowPrivilegeEscalation
+          value: false
