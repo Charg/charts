@@ -1,0 +1,205 @@
+---
+suite: test template-time validation
+templates:
+  - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+tests:
+  - it: renders with defaults, leaving the API server key to the image
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - notContains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: HERMES_CHART_ENV_3
+          any: true
+
+  - it: refuses an API server key Hermes would reject
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: too-short
+    asserts:
+      - failedTemplate:
+          errorPattern: apiServer.key must be at least 16 characters
+
+  - it: refuses an inline key and an existingSecret together
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+        existingSecret:
+          name: hermes-api
+    asserts:
+      - failedTemplate:
+          errorMessage: set only one of apiServer.key or apiServer.existingSecret.name, not both
+
+  - it: needs no key once the API server is disabled
+    template: deployment.yaml
+    set:
+      apiServer:
+        enabled: false
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: refuses env names the chart sets itself
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      env:
+        HERMES_HOME: /data
+    asserts:
+      - failedTemplate:
+          errorPattern: env.HERMES_HOME is set by the chart
+
+  - it: refuses managedEnv names the chart sets itself
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      managedEnv:
+        - name: API_SERVER_KEY
+          value: sneaky-override-0123456789
+    asserts:
+      - failedTemplate:
+          errorPattern: managedEnv API_SERVER_KEY is set by the chart
+
+  - it: refuses an invalid managedEnv name
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      managedEnv:
+        - name: "1BAD-NAME"
+          value: x
+    asserts:
+      - failedTemplate:
+          errorPattern: managedEnv\[0\].name must be a valid environment variable name
+
+  - it: refuses a duplicated managedEnv name
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      managedEnv:
+        - name: OPENAI_API_KEY
+          value: a
+        - name: OPENAI_API_KEY
+          value: b
+    asserts:
+      - failedTemplate:
+          errorPattern: managedEnv OPENAI_API_KEY is listed more than once
+
+  - it: refuses a managedEnv entry without a value
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      managedEnv:
+        - name: OPENAI_API_KEY
+    asserts:
+      - failedTemplate:
+          errorPattern: managedEnv OPENAI_API_KEY needs a value or a valueFrom
+
+  - it: accepts an empty managedEnv value
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      managedEnv:
+        - name: EMPTY
+          value: ""
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: refuses a dashboard without an auth provider
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      dashboard:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: dashboard.enabled needs an auth provider
+
+  - it: refuses a basic-auth username without a password
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      dashboard:
+        enabled: true
+        basicAuth:
+          username: admin
+    asserts:
+      - failedTemplate:
+          errorPattern: dashboard.basicAuth.username needs a password
+
+  - it: refuses a basic-auth password without a username
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      dashboard:
+        enabled: true
+        basicAuth:
+          password: pw
+    asserts:
+      - failedTemplate:
+          errorPattern: dashboard.basicAuth.username is required
+
+  - it: accepts a password hash from managedEnv
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      dashboard:
+        enabled: true
+        basicAuth:
+          username: admin
+      managedEnv:
+        - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD_HASH
+          valueFrom:
+            secretKeyRef:
+              name: dash
+              key: hash
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: accepts an OIDC provider from managedEnv
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      dashboard:
+        enabled: true
+      managedEnv:
+        - name: HERMES_DASHBOARD_OIDC_ISSUER
+          value: https://id.example.com/realms/home
+        - name: HERMES_DASHBOARD_OIDC_CLIENT_ID
+          value: hermes
+    asserts:
+      - isKind:
+          of: Deployment
+
+  - it: accepts an auth provider from config
+    template: deployment.yaml
+    set:
+      apiServer:
+        key: unit-api-server-key-0123
+      dashboard:
+        enabled: true
+      config:
+        dashboard:
+          oauth:
+            client_id: abc
+    asserts:
+      - isKind:
+          of: Deployment

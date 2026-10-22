@@ -1,0 +1,25 @@
+---
+# Exercises Ingress rendering and admission for both ports. kind has no ingress controller
+# installed, so this proves the resource is accepted by the API server, not that traffic flows
+# through it.
+apiServer:
+  key: ci-api-server-key-0123456789
+dashboard:
+  enabled: true
+  publicUrl: https://hermes-dashboard.ci.local
+  basicAuth:
+    username: admin
+    password: ci-password
+ingress:
+  enabled: true
+  hosts:
+    - host: hermes.ci.local
+      paths:
+        - path: /
+          pathType: Prefix
+          port: api
+    - host: hermes-dashboard.ci.local
+      paths:
+        - path: /
+          pathType: Prefix
+          port: dashboard

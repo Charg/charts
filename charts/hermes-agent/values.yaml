@@ -1,0 +1,292 @@
+---
+# Default values for hermes-agent.
+#
+# Hermes Agent runs as a single-replica Deployment. There is deliberately no replicaCount: its
+# sessions, memory, skills and SQLite state live in one data directory on a ReadWriteOnce volume,
+# and upstream is explicit that two gateways must never run against the same data directory.
+#
+# Configuration precedence, which matters on every upgrade: Hermes keeps its own config.yaml and
+# .env in the data directory, and both can be edited at runtime (`hermes config set`, `hermes
+# setup`, the dashboard). The user .env even wins over the container environment. So the chart
+# does not configure Hermes through plain environment variables: it writes `config` and
+# `managedEnv` (plus the API server and dashboard settings below) into Hermes's managed scope, a
+# read-only directory whose values win over the user files, key by key, and which `hermes config
+# set` refuses to change. Everything the chart does not manage stays editable at runtime and is
+# persisted on the data volume.
+
+image:
+  # -- Image repository.
+  repository: docker.io/nousresearch/hermes-agent
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  tag: ""
+
+# -- References to Secrets holding credentials for a private image registry.
+imagePullSecrets: []
+
+# -- Overrides the chart name portion of generated resource names.
+nameOverride: ""
+
+# -- Overrides the fully generated resource name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the pod.
+  create: true
+  # -- Automount the ServiceAccount API token into the pod. Hermes never talks to the Kubernetes
+  # API, and its terminal tool runs arbitrary commands, so the token is off by default.
+  automount: false
+  # -- Annotations added to the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount to use. Generated from the fullname template when empty and create is true.
+  name: ""
+
+# -- Annotations added to the pod.
+podAnnotations: {}
+
+# -- Labels added to the pod.
+podLabels: {}
+
+# -- Pod-level securityContext. Empty by default because the image must start as root: its
+# s6-overlay init fixes ownership of the data volume, seeds and migrates the config, then drops
+# to the unprivileged `hermes` user (uid 10000, remappable with env.HERMES_UID / HERMES_GID)
+# before starting the gateway. Setting runAsUser/runAsNonRoot makes the image refuse to start.
+podSecurityContext: {}
+
+# -- Container-level securityContext, applied to the init container too. See "Running with
+# minimal privileges" in README.md for the capability set that is enough for the root-then-drop
+# start; ci/hardened-values.yaml installs exactly that profile.
+securityContext: {}
+
+# -- Hermes config.yaml settings the chart enforces, as a nested map in upstream's config.yaml
+# schema, e.g. {model: {provider: custom, base_url: "http://litellm:4000/v1", default: gpt-5-mini,
+# api_key: "${LITELLM_API_KEY}"}}. Written to the managed config, so each leaf set here wins over
+# the user config.yaml on the data volume and cannot be changed with `hermes config set`; leaves
+# left out keep their upstream default or runtime value. `${VAR}` references expand against the
+# process environment, which includes managedEnv, so keep secrets in managedEnv and reference
+# them here rather than writing them inline.
+config: {}
+
+apiServer:
+  # -- Run the OpenAI-compatible API server (API_SERVER_ENABLED) on 0.0.0.0, so the Service can
+  # reach it. Probes and the helm test target it while enabled.
+  enabled: true
+  # -- Port the API server listens on inside the container (API_SERVER_PORT).
+  port: 8642
+  # -- API_SERVER_KEY: the bearer token every /v1 request must carry, at least 16 characters
+  # (Hermes refuses a shorter one). Unset, the image generates a random key into the user .env on
+  # the data volume on first start; read it from there (see NOTES) or set one here to manage it
+  # declaratively. Mutually exclusive with existingSecret.name.
+  key: ""
+  existingSecret:
+    # -- Name of an operator-supplied Secret holding API_SERVER_KEY, instead of key.
+    name: ""
+    # -- Key within existingSecret.name holding API_SERVER_KEY.
+    key: api-server-key
+  # -- API_SERVER_CORS_ORIGINS: comma-separated browser origins allowed to call the API, e.g. a
+  # chat frontend's URL. Empty allows none, which is right for server-to-server clients.
+  corsOrigins: ""
+  # -- API_SERVER_MODEL_NAME: the model id advertised on /v1/models. Empty keeps upstream's default.
+  modelName: ""
+
+dashboard:
+  # -- Run the web dashboard (HERMES_DASHBOARD) next to the gateway, bound to 0.0.0.0. A
+  # non-loopback dashboard refuses to start without an auth provider, so enabling it also needs
+  # basicAuth below, or an OAuth / OIDC provider configured through managedEnv or config (see
+  # README.md).
+  enabled: false
+  # -- Port the dashboard listens on inside the container (HERMES_DASHBOARD_PORT).
+  port: 9119
+  # -- HERMES_DASHBOARD_PUBLIC_URL: the URL users reach the dashboard on, e.g.
+  # https://hermes.example.com. Needed behind an Ingress or HTTPRoute so OAuth callbacks and
+  # cookies use the public address.
+  publicUrl: ""
+  # The built-in username/password provider. Upstream recommends it for trusted networks or a VPN
+  # only; use OAuth or OIDC for a dashboard reachable from the internet.
+  basicAuth:
+    # -- HERMES_DASHBOARD_BASIC_AUTH_USERNAME. Setting it (with a password) enables the provider.
+    username: ""
+    # -- HERMES_DASHBOARD_BASIC_AUTH_PASSWORD. Mutually exclusive with existingSecret.name.
+    password: ""
+    # -- HERMES_DASHBOARD_BASIC_AUTH_SECRET: the key session tokens are signed with. Without it
+    # Hermes generates one per process and every login is lost on restart. Mutually exclusive
+    # with existingSecret.name.
+    secret: ""
+    existingSecret:
+      # -- Name of an operator-supplied Secret holding the password and signing secret, instead
+      # of password and secret.
+      name: ""
+      # -- Key within existingSecret.name holding the password.
+      passwordKey: password
+      # -- Key within existingSecret.name holding the signing secret. Leave the key out of the
+      # Secret to have Hermes generate a per-process one.
+      secretKey: secret
+
+# -- Further variables for Hermes's managed .env, as a list of Kubernetes-style env entries
+# ({name, value} or {name, valueFrom}). These win over both the user .env on the data volume and
+# the container environment, so this is where provider API keys belong, e.g. {name:
+# OPENAI_API_KEY, valueFrom: {secretKeyRef: {name: openai, key: api-key}}}. Values are resolved by
+# an init container and written to an in-memory volume; multi-line values are refused. A name
+# the chart already sets (API_SERVER_*, the dashboard auth variables) fails the template.
+managedEnv: []
+
+# -- Plain container environment variables, as a flat map of name to value. Hermes's own .env on
+# the data volume wins over these, so use this only for what the image's init reads before
+# Hermes starts, e.g. {HERMES_UID: "1000", TZ: Europe/Berlin}; put Hermes settings in managedEnv
+# or config. A name the chart already sets fails the template.
+env: {}
+
+# -- Additional container environment variables as a list of name/value(From) entries, appended
+# after env above. Same precedence as env: the user .env wins.
+extraEnvVars: []
+
+# -- envFrom sources (ConfigMaps or Secrets) added to the container. Same precedence as env.
+extraEnvFrom: []
+
+service:
+  # -- Service type. The Service is only rendered while apiServer or dashboard is enabled.
+  type: ClusterIP
+  # -- Service port for the API server.
+  apiPort: 8642
+  # -- Service port for the dashboard, when enabled.
+  dashboardPort: 9119
+  # -- Annotations added to the Service.
+  annotations: {}
+
+ingress:
+  # -- Create an Ingress.
+  enabled: false
+  # -- IngressClass to use.
+  className: ""
+  # -- Annotations added to the Ingress. The API streams responses (server-sent events), so
+  # disable response buffering and raise read timeouts on controllers that need it.
+  annotations: {}
+  # -- Hosts and paths. Each path names the Service port it routes to: api or dashboard.
+  hosts:
+    - host: hermes.local
+      paths:
+        - path: /
+          pathType: Prefix
+          port: api
+  # -- TLS configuration blocks, as in a standard networking.k8s.io/v1 Ingress spec.
+  tls: []
+
+httpRoute:
+  # -- Create a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires the Gateway API
+  # CRDs and a Gateway to attach to.
+  enabled: false
+  # -- Annotations added to the HTTPRoute.
+  annotations: {}
+  # -- Gateways the route attaches to, e.g. [{name: public, namespace: gateway, sectionName: https}].
+  parentRefs: []
+  # -- Hostnames the route matches.
+  hostnames: []
+  # -- Service port the single rule forwards to: api or dashboard.
+  port: api
+  # -- Matches for the single rule forwarding to the Service, as in an HTTPRoute rule.
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+
+persistence:
+  # -- Persist the data directory (/opt/data, HERMES_HOME): sessions, memory, skills, the user
+  # config.yaml and .env, logs and the SQLite state. Disabling it uses an emptyDir: every pod
+  # restart then loses all of it, so only do that for throwaway testing.
+  enabled: true
+  # -- Use an existing PersistentVolumeClaim instead of creating one. Every other persistence
+  # value is ignored when set. It is mounted as the data directory as-is; the image fixes
+  # ownership on start, so a Docker install's ~/.hermes copied in works unchanged.
+  existingClaim: ""
+  # -- Size of the PersistentVolumeClaim.
+  size: 10Gi
+  # -- StorageClass for the PersistentVolumeClaim. Empty string uses the cluster's default
+  # StorageClass. Prefer block storage: on NFS or SMB set config.database.journal_mode to delete,
+  # as SQLite's WAL mode is unsafe there.
+  storageClass: ""
+  # -- Access modes for the PersistentVolumeClaim.
+  accessModes:
+    - ReadWriteOnce
+  # -- Annotations added to the PersistentVolumeClaim.
+  annotations: {}
+  # -- Keep the chart-created PersistentVolumeClaim on `helm uninstall` (helm.sh/resource-policy:
+  # keep). Delete the claim by hand once it is genuinely no longer needed.
+  keep: true
+
+shm:
+  # -- Mount a memory-backed emptyDir at /dev/shm. The container runtime's 64Mi default is too
+  # small for the bundled Playwright browser that the browser tools drive.
+  enabled: true
+  # -- Size limit of /dev/shm. It counts against the container's memory limit when used.
+  sizeLimit: 1Gi
+
+# -- Additional volumes added to the pod.
+extraVolumes: []
+
+# -- Additional volumeMounts added to the container.
+extraVolumeMounts: []
+
+# -- Deployment strategy. Recreate by default: the RWO data volume cannot be attached to the new
+# pod while the old one still holds it, and two gateways on one data directory corrupt its state.
+strategy:
+  type: Recreate
+
+# -- Seconds the pod gets to shut down after SIGTERM, which s6 passes on to the gateway, before
+# it is killed.
+terminationGracePeriodSeconds: 60
+
+# The probes target GET /health on the API server, which needs no authentication, or GET
+# /api/status on the dashboard when only the dashboard is enabled. With neither there is no HTTP
+# endpoint and no probes are rendered.
+startupProbe:
+  # -- Enable a startup probe that gates the readiness and liveness probes until Hermes is up.
+  # Every start migrates the config and syncs bundled skills before the gateway listens.
+  enabled: true
+  # -- Seconds between startup checks.
+  periodSeconds: 5
+  # -- Seconds before a startup check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures allowed before the container is considered to have failed to start.
+  failureThreshold: 60
+
+readinessProbe:
+  # -- Seconds between readiness checks.
+  periodSeconds: 10
+  # -- Seconds before a readiness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the pod is marked not ready.
+  failureThreshold: 3
+
+livenessProbe:
+  # -- Seconds between liveness checks.
+  periodSeconds: 20
+  # -- Seconds before a liveness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the container is restarted.
+  failureThreshold: 6
+
+# -- Resource requests and limits for the container (init container included). Upstream asks for
+# 1Gi of memory at minimum and 2-4Gi in practice, more with the browser tools in use.
+resources: {}
+
+# -- Node selector for pod scheduling.
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling.
+tolerations: []
+
+# -- Affinity rules for pod scheduling.
+affinity: {}
+
+# -- PriorityClass for the pod.
+priorityClassName: ""
+
+test:
+  image:
+    # -- Image used by the helm test hook that calls the API server (or dashboard) through the Service.
+    repository: curlimages/curl
+    # -- Tag of the test image.
+    tag: "8.23.0"
+    # -- Pull policy of the test image.
+    pullPolicy: IfNotPresent

@@ -1,0 +1,55 @@
+---
+suite: test httproute
+templates:
+  - httproute.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: attaches to the given Gateway and forwards to the API port
+    set:
+      httpRoute:
+        enabled: true
+        parentRefs:
+          - name: public
+            namespace: gateway
+            sectionName: https
+        hostnames:
+          - hermes.example.com
+    asserts:
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: spec.parentRefs[0].name
+          value: public
+      - equal:
+          path: spec.rules[0].backendRefs[0]
+          value:
+            name: RELEASE-NAME-hermes-agent
+            port: 8642
+
+  - it: can forward to the dashboard port instead
+    set:
+      dashboard:
+        enabled: true
+      service:
+        dashboardPort: 80
+      httpRoute:
+        enabled: true
+        port: dashboard
+        parentRefs:
+          - name: public
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 80
+
+  - it: fails without parentRefs
+    set:
+      httpRoute:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: httpRoute.parentRefs must name at least one Gateway when httpRoute.enabled is true

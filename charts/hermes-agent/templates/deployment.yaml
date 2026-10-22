@@ -1,0 +1,226 @@
+{{- include "hermes-agent.validate" . }}
+{{- $managedEnv := include "hermes-agent.managedEnv" . | fromYamlArray }}
+{{- $probe := include "hermes-agent.probe" . | fromYaml }}
+{{- $managedNames := list }}
+{{- range $managedEnv }}
+{{- $managedNames = append $managedNames .name }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hermes-agent.fullname" . }}
+  labels:
+    {{- include "hermes-agent.labels" . | nindent 4 }}
+spec:
+  # Fixed at one: see the note at the top of values.yaml for why Hermes does not scale out.
+  replicas: 1
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "hermes-agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- $podAnnotations := deepCopy .Values.podAnnotations }}
+      {{- /* The managed scope is written once per pod start, so a change needs a new pod. */}}
+      {{- $_ := set $podAnnotations "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum) }}
+      {{- if include "hermes-agent.hasInlineCredentials" . }}
+      {{- $_ := set $podAnnotations "checksum/secret" (include (print $.Template.BasePath "/secret.yaml") . | sha256sum) }}
+      {{- end }}
+      annotations:
+        {{- toYaml $podAnnotations | nindent 8 }}
+      labels:
+        {{- include "hermes-agent.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "hermes-agent.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automount }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      initContainers:
+        # Assembles Hermes's managed scope (config.yaml and .env) in an in-memory volume that the
+        # main container mounts read-only. Kubernetes resolves every value, Secret references
+        # included, into this container's environment; the script writes them out as a .env file
+        # in the one format both of Hermes's .env parsers read identically: double-quoted, with
+        # backslashes and double quotes escaped.
+        - name: managed-scope
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              umask 022
+              cp /chart-config/config.yaml /managed/config.yaml
+              : > /managed/.env
+              i=0
+              for name in ${HERMES_CHART_ENV_NAMES}; do
+                # An unset variable is an optional Secret reference that did not resolve: skip it.
+                if value="$(printenv "HERMES_CHART_ENV_${i}")"; then
+                  case "${value}" in
+                    *"
+              "*)
+                      echo "managed env ${name}: multi-line values are not supported" >&2
+                      exit 1
+                      ;;
+                  esac
+                  escaped="$(printf '%s' "${value}" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+                  printf '%s="%s"\n' "${name}" "${escaped}" >> /managed/.env
+                fi
+                i=$((i + 1))
+              done
+          env:
+            - name: HERMES_CHART_ENV_NAMES
+              value: {{ $managedNames | join " " | quote }}
+            {{- range $i, $entry := $managedEnv }}
+            - name: HERMES_CHART_ENV_{{ $i }}
+              {{- if hasKey $entry "value" }}
+              value: {{ $entry.value | toString | quote }}
+              {{- else }}
+              valueFrom:
+                {{- toYaml $entry.valueFrom | nindent 16 }}
+              {{- end }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: chart-config
+              mountPath: /chart-config
+              readOnly: true
+            - name: managed
+              mountPath: /managed
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image's entrypoint stays in place: it starts s6-overlay, which prepares the data
+          # directory as root, then runs and supervises the gateway as the hermes user.
+          args:
+            - gateway
+            - run
+          env:
+            {{- include "hermes-agent.env" . | nindent 12 }}
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if include "hermes-agent.hasPorts" . }}
+          ports:
+            {{- if .Values.apiServer.enabled }}
+            - name: api
+              containerPort: {{ .Values.apiServer.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.dashboard.enabled }}
+            - name: dashboard
+              containerPort: {{ .Values.dashboard.port }}
+              protocol: TCP
+            {{- end }}
+          {{- end }}
+          {{- if $probe }}
+          {{- if .Values.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ $probe.path }}
+              port: {{ $probe.port }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ $probe.path }}
+              port: {{ $probe.port }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ $probe.path }}
+              port: {{ $probe.port }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ include "hermes-agent.dataPath" . }}
+            - name: managed
+              mountPath: {{ include "hermes-agent.managedDir" . }}
+              readOnly: true
+            {{- if .Values.shm.enabled }}
+            - name: shm
+              mountPath: /dev/shm
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "hermes-agent.claimName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: chart-config
+          configMap:
+            name: {{ include "hermes-agent.fullname" . }}
+        # In memory, so resolved secrets never touch the node's disk.
+        - name: managed
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        {{- if .Values.shm.enabled }}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            {{- with .Values.shm.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}

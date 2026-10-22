@@ -1,0 +1,44 @@
+---
+suite: test service
+templates:
+  - service.yaml
+tests:
+  - it: exposes the API port by default
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.ports
+          value:
+            - name: api
+              port: 8642
+              targetPort: api
+              protocol: TCP
+      - equal:
+          path: spec.selector
+          value:
+            app.kubernetes.io/name: hermes-agent
+            app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: adds the dashboard port when the dashboard runs
+    set:
+      dashboard:
+        enabled: true
+      service:
+        dashboardPort: 80
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            name: dashboard
+            port: 80
+            targetPort: dashboard
+            protocol: TCP
+
+  - it: is not rendered without any HTTP endpoint
+    set:
+      apiServer:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

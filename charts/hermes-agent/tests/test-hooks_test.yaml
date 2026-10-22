@@ -1,0 +1,93 @@
+---
+suite: test helm test hook
+templates:
+  - tests/test-connection.yaml
+set:
+  apiServer:
+    key: unit-api-server-key-0123
+tests:
+  - it: is a helm test hook that never carries the selector labels
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: test
+      - notExists:
+          path: metadata.labels["app.kubernetes.io/name"]
+
+  - it: calls /health and /v1/models with the key from the chart Secret
+    asserts:
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'base="http://RELEASE-NAME-hermes-agent:8642"'
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: /v1/models
+      - equal:
+          path: spec.containers[0].env[0]
+          value:
+            name: API_SERVER_KEY
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-hermes-agent
+                key: api-server-key
+
+  - it: reads the key from an existingSecret
+    set:
+      apiServer:
+        key: ""
+        existingSecret:
+          name: hermes-api
+          key: token
+    asserts:
+      - equal:
+          path: spec.containers[0].env[0].valueFrom.secretKeyRef
+          value:
+            name: hermes-api
+            key: token
+
+  - it: checks the dashboard auth gate when the dashboard runs
+    set:
+      dashboard:
+        enabled: true
+      service:
+        dashboardPort: 80
+    asserts:
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'http://RELEASE-NAME-hermes-agent:80/api/status'
+
+  - it: checks only the dashboard when the API server is disabled
+    set:
+      apiServer:
+        enabled: false
+        key: ""
+      dashboard:
+        enabled: true
+    asserts:
+      - notExists:
+          path: spec.containers[0].env
+      - notMatchRegex:
+          path: spec.containers[0].command[2]
+          pattern: /v1/models
+
+  - it: only checks that /v1 is guarded when Hermes generated the key itself
+    set:
+      apiServer:
+        key: ""
+    asserts:
+      - notExists:
+          path: spec.containers[0].env
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'no key: '
+      - notMatchRegex:
+          path: spec.containers[0].command[2]
+          pattern: Bearer
+
+  - it: is not rendered without any HTTP endpoint
+    set:
+      apiServer:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

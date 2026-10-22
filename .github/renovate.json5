@@ -56,6 +56,14 @@
       groupName: "anythingllm",
       commitMessageTopic: "AnythingLLM",
     },
+    {
+      // Hermes Agent. Its Docker Hub repo also publishes "-desktop" builds and "rc.N" release
+      // candidates next to each release; only follow plain vX.Y.Z releases.
+      matchDepNames: ["nousresearch/hermes-agent"],
+      allowedVersions: "/^v\\d+\\.\\d+\\.\\d+$/",
+      groupName: "hermes-agent",
+      commitMessageTopic: "Hermes Agent",
+    },
   ],
 
   // appVersion in each Chart.yaml is the source of truth for its image tag (values.yaml
@@ -84,6 +92,14 @@
       managerFilePatterns: ["/^charts/anythingllm/Chart\\.yaml$/"],
       matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
       depNameTemplate: "mintplexlabs/anythingllm",
+      datasourceTemplate: "docker",
+      registryUrlTemplate: "https://index.docker.io",
+    },
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^charts/hermes-agent/Chart\\.yaml$/"],
+      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      depNameTemplate: "nousresearch/hermes-agent",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://index.docker.io",
     },

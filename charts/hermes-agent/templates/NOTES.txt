@@ -1,0 +1,61 @@
+Hermes Agent is running as a single-replica Deployment.
+
+IMPORTANT: config, managedEnv and the apiServer / dashboard settings are written to Hermes's
+managed scope, which wins over the config.yaml and .env on the data volume. Those keys cannot be
+changed at runtime (`hermes config set` refuses them); change them here. Everything else stays
+editable at runtime and is persisted.
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled. The data directory is an emptyDir and every session, memory,
+skill and setting saved at runtime is lost when the pod restarts. Do not use this for anything
+but throwaway testing.
+{{- end }}
+{{- if not (include "hermes-agent.hasPorts" .) }}
+
+NOTE: neither apiServer nor dashboard is enabled, so no Service is rendered. The gateway only
+serves the messaging platforms configured through config and managedEnv.
+{{- end }}
+{{- if and .Values.apiServer.enabled (not (include "hermes-agent.hasApiKey" .)) }}
+
+NOTE: apiServer.key is unset, so Hermes generated its own API key on first start. Read it with:
+
+   kubectl --namespace {{ .Release.Namespace }} exec deploy/{{ include "hermes-agent.fullname" . }} -- sh -c 'grep ^API_SERVER_KEY= /opt/data/.env'
+
+Set apiServer.key (or apiServer.existingSecret) to manage it declaratively instead.
+{{- end }}
+{{- if .Values.apiServer.enabled }}
+
+1. Reach the OpenAI-compatible API (every /v1 request needs the API key as a bearer token):
+{{- if .Values.ingress.enabled }}
+   {{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/v1
+   {{- end }}
+{{- else if and .Values.httpRoute.enabled (eq .Values.httpRoute.port "api") }}
+   {{- range .Values.httpRoute.hostnames }}
+   https://{{ . }}/v1
+   {{- end }}
+{{- else }}
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "hermes-agent.fullname" . }} 8642:{{ .Values.service.apiPort }}
+
+   Then point any OpenAI client at http://127.0.0.1:8642/v1.
+{{- end }}
+{{- end }}
+{{- if .Values.dashboard.enabled }}
+
+2. Reach the dashboard:
+{{- if .Values.dashboard.publicUrl }}
+   {{ .Values.dashboard.publicUrl }}
+{{- else }}
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "hermes-agent.fullname" . }} 9119:{{ .Values.service.dashboardPort }}
+
+   Then open http://127.0.0.1:9119.
+{{- end }}
+{{- end }}
+{{- if include "hermes-agent.hasPorts" . }}
+
+Verify the deployment:
+
+   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}
+{{- end }}

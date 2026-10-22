@@ -1,0 +1,5 @@
+---
+# Everything at its defaults: no API key from the chart, so the image generates its own into the
+# user .env. No LLM is configured, so this proves the gateway boots, takes the managed scope and
+# serves a guarded API, not that it chats.
+{}

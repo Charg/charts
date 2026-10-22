@@ -1,0 +1,67 @@
+{{- if include "hermes-agent.hasPorts" . }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "hermes-agent.fullname" . }}-test-connection"
+  labels:
+    {{- include "hermes-agent.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  containers:
+    - name: api-check
+      image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
+      imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      {{- if include "hermes-agent.hasApiKey" . }}
+      env:
+        {{- range (include "hermes-agent.credentials" . | fromYamlArray) }}
+        {{- if eq .env "API_SERVER_KEY" }}
+        - name: API_SERVER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ ternary (include "hermes-agent.secretName" $) .existingSecret.name (not (empty .value)) }}
+              key: {{ ternary .key .existingSecret.key (not (empty .value)) }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          {{- if .Values.apiServer.enabled }}
+          base="http://{{ include "hermes-agent.fullname" . }}:{{ .Values.service.apiPort }}"
+
+          # /health needs no auth and answers once the gateway has started the API server.
+          curl -sf --max-time 10 "${base}/health"
+          echo
+          {{- if include "hermes-agent.hasApiKey" . }}
+
+          # /v1/models requires the bearer key, so a 200 proves the chart's key reached Hermes
+          # through the managed scope and beat the key the image generates into the user .env.
+          response="$(curl -sf --max-time 10 -H "Authorization: Bearer ${API_SERVER_KEY}" "${base}/v1/models")"
+          echo "${response}"
+          echo "${response}" | grep -q '"data"'
+
+          # And a wrong key must be refused.
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Authorization: Bearer wrong" "${base}/v1/models")"
+          echo "wrong key: ${code}"
+          [ "${code}" = 401 ]
+          {{- else }}
+
+          # No key from the chart: Hermes generated its own, so only check that /v1 is guarded.
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${base}/v1/models")"
+          echo "no key: ${code}"
+          [ "${code}" = 401 ]
+          {{- end }}
+          {{- end }}
+          {{- if .Values.dashboard.enabled }}
+
+          # The dashboard is bound to 0.0.0.0, so it must report its auth gate as engaged.
+          status="$(curl -sf --max-time 10 "http://{{ include "hermes-agent.fullname" . }}:{{ .Values.service.dashboardPort }}/api/status")"
+          echo "${status}"
+          echo "${status}" | grep -q '"auth_required": *true'
+          {{- end }}
+{{- end }}

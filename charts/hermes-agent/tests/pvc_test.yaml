@@ -1,0 +1,66 @@
+---
+suite: test persistent volume claim
+templates:
+  - pvc.yaml
+tests:
+  - it: creates a kept claim by default
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-hermes-agent
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal:
+          path: spec.accessModes
+          value:
+            - ReadWriteOnce
+      - equal:
+          path: spec.resources.requests.storage
+          value: 10Gi
+      - notExists:
+          path: spec.storageClassName
+
+  - it: honours size, storageClass and annotations
+    set:
+      persistence:
+        size: 5Gi
+        storageClass: fast
+        annotations:
+          backup: "true"
+    asserts:
+      - equal:
+          path: spec.resources.requests.storage
+          value: 5Gi
+      - equal:
+          path: spec.storageClassName
+          value: fast
+      - equal:
+          path: metadata.annotations.backup
+          value: "true"
+
+  - it: drops the keep policy when disabled
+    set:
+      persistence:
+        keep: false
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: renders nothing for an existing claim
+    set:
+      persistence:
+        existingClaim: hermes-agent
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing when persistence is disabled
+    set:
+      persistence:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
