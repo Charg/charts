@@ -3,8 +3,8 @@ apiVersion: v2
 name: hermes-agent
 description: Nous Research's self-improving AI agent with an OpenAI-compatible API server and web dashboard.
 type: application
-version: 0.1.0
-appVersion: "v0.22.4"
+version: 0.1.1
+appVersion: "v0.22.5"
 keywords:
   - hermes
   - agent
