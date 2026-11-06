@@ -10,6 +10,8 @@ set:
 tests:
   - it: runs a single replica with the Recreate strategy and the appVersion image by default
     template: deployment.yaml
+    chart:
+      appVersion: 0.0.0-test
     asserts:
       - isKind:
           of: Deployment
@@ -21,10 +23,10 @@ tests:
           value: Recreate
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/nousresearch/hermes-agent:v0.22.4
+          value: docker.io/nousresearch/hermes-agent:0.0.0-test
       - equal:
           path: spec.template.spec.initContainers[0].image
-          value: docker.io/nousresearch/hermes-agent:v0.22.4
+          value: docker.io/nousresearch/hermes-agent:0.0.0-test
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false

@@ -29,10 +29,12 @@ tests:
           value: RELEASE-NAME-technitium-dns-server-headless
 
   - it: defaults the image tag to the chart appVersion
+    chart:
+      appVersion: 0.0.0-test
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/technitium/dns-server:15.4.0
+          value: docker.io/technitium/dns-server:0.0.0-test
 
   - it: overrides the image tag from values
     set:

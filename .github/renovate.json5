@@ -16,6 +16,14 @@
   rangeStrategy: "pin",
   configMigration: true,
 
+  // Merge without review once CI is green, via GitHub's native auto-merge (main's ruleset
+  // requires the ci checks). Nobody looks at these PRs first, so let each release age a week:
+  // upstream yanks or re-tags a bad release in that window instead of it reaching ghcr.
+  automerge: true,
+  automergeType: "pr",
+  platformAutomerge: true,
+  minimumReleaseAge: "7 days",
+
   // Flake inputs (nixpkgs) tracked via the lockfile. Renovate re-locks against the pinned
   // nixos-26.05 branch ref rather than moving the ref itself.
   nix: {
@@ -27,6 +35,11 @@
   },
 
   packageRules: [
+    {
+      // Majors can change values or storage layout; those still wait for a human.
+      matchUpdateTypes: ["major"],
+      automerge: false,
+    },
     {
       // GitHub Actions are SHA-pinned with a version comment; keep that pinning on update.
       matchManagers: ["github-actions"],
