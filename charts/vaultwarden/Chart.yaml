@@ -3,8 +3,8 @@ apiVersion: v2
 name: vaultwarden
 description: Unofficial Bitwarden-compatible password manager server with the web vault, admin panel, SSO and SMTP.
 type: application
-version: 0.1.1
-appVersion: "1.37.4"
+version: 0.1.2
+appVersion: "1.37.5"
 keywords:
   - vaultwarden
   - bitwarden
