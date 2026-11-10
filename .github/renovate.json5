@@ -70,6 +70,14 @@
       commitMessageTopic: "AnythingLLM",
     },
     {
+      // Anki sync server, built by Charg/containers and tagged with the upstream Anki version
+      // (YY.MM or YY.MM.patch). Only follow those plain release tags.
+      matchDepNames: ["charg/anki-sync-server"],
+      versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(\\.(?<patch>\\d+))?$",
+      groupName: "anki-sync-server",
+      commitMessageTopic: "Anki sync server",
+    },
+    {
       // Hermes Agent. Its Docker Hub repo also publishes "-desktop" builds and "rc.N" release
       // candidates next to each release; only follow plain vX.Y.Z releases.
       matchDepNames: ["nousresearch/hermes-agent"],
@@ -84,6 +92,14 @@
   // there. One manager per chart: the file pattern is what ties an appVersion to its image, so
   // a manager matching every Chart.yaml would track every chart against the same image.
   customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/^charts/anki-sync-server/Chart\\.yaml$/"],
+      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      depNameTemplate: "charg/anki-sync-server",
+      datasourceTemplate: "docker",
+      registryUrlTemplate: "https://ghcr.io",
+    },
     {
       customType: "regex",
       managerFilePatterns: ["/^charts/technitium-dns-server/Chart\\.yaml$/"],

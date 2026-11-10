@@ -1,0 +1,235 @@
+---
+# Default values for anki-sync-server.
+#
+# The sync server runs as a single-replica Deployment. There is deliberately no replicaCount:
+# each user's collection is a SQLite database on a ReadWriteOnce volume, and the server keeps
+# per-user sync sessions in process memory, so a second replica would either fail to mount the
+# volume or corrupt a collection by writing to it from two processes.
+#
+# At least one user is required: the server refuses to start without one.
+
+image:
+  # -- Image repository. Built from upstream source by github.com/Charg/containers, signed with
+  # cosign, and running as a non-root user.
+  repository: ghcr.io/charg/anki-sync-server
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  tag: ""
+  # -- Image digest, e.g. "sha256:...". When set, the image is pulled by digest and tag is only
+  # informational. The tag is rebuilt in place when its base image picks up security fixes, so
+  # pin a digest for byte-for-byte reproducible deploys.
+  digest: ""
+
+# -- References to Secrets holding credentials for a private image registry.
+imagePullSecrets: []
+
+# -- Overrides the chart name portion of generated resource names.
+nameOverride: ""
+
+# -- Overrides the fully generated resource name.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the pod.
+  create: true
+  # -- Automount the ServiceAccount API token into the pod. The sync server never talks to the
+  # Kubernetes API, so the token is off by default.
+  automount: false
+  # -- Annotations added to the ServiceAccount.
+  annotations: {}
+  # -- Name of the ServiceAccount to use. Generated from the fullname template when empty and create is true.
+  name: ""
+
+# -- Annotations added to the pod.
+podAnnotations: {}
+
+# -- Labels added to the pod.
+podLabels: {}
+
+# -- Pod-level securityContext. The image runs as distroless' nonroot user (65532); fsGroup makes
+# the data volume writable by it.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level securityContext. The server only writes to its data volume and /tmp (an
+# emptyDir the chart always mounts), so the root filesystem is read-only.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  # -- Service type.
+  type: ClusterIP
+  # -- Service port. Clients use the URL this ends up behind as their custom sync server.
+  port: 80
+  # -- Annotations added to the Service.
+  annotations: {}
+
+# -- Sync accounts, rendered into a Secret as SYNC_USER1, SYNC_USER2, ... in list order, e.g.
+# [{name: alice, password: correct-horse}]. Each user gets their own collection under
+# /anki_data/<name>. Mutually exclusive with existingSecret. Changing the list rolls the pod.
+users: []
+
+# -- Name of an operator-supplied Secret to load users from instead of users. Its keys must be
+# SYNC_USER1, SYNC_USER2, ... with "name:password" values; it is loaded whole with envFrom. A
+# change to it needs a manual `kubectl rollout restart`.
+existingSecret: ""
+
+# -- PASSWORDS_HASHED: the passwords in users (or existingSecret) are PHC-format PBKDF2 hashes
+# rather than plain text. Note the helm test can't log in with a hash, so it only checks /health.
+passwordsHashed: false
+
+# -- SYNC_IP_HEADER: where the server takes client IPs from, for its logs. One of ConnectInfo,
+# RightmostXForwardedFor, RightmostForwarded, XRealIp, CfConnectingIp, TrueClientIp, FlyClientIp,
+# CloudFrontViewerAddress. Behind an ingress or gateway, RightmostXForwardedFor is usually right.
+# Empty leaves the server's own default (ConnectInfo: the TCP peer, i.e. the proxy). Once set,
+# the server answers any sync request missing that header with a 500, so every client must come
+# through the proxy: `kubectl port-forward` and in-cluster clients stop working.
+ipHeader: ""
+
+# -- MAX_SYNC_PAYLOAD_MEGS (Integer): the largest upload the server accepts, in MB. Unset leaves
+# the server's own default (100). A proxy in front needs a body-size limit at least this large.
+maxPayloadMegs: null
+
+# -- RUST_LOG: log filter, e.g. "anki=debug". Empty leaves the server's own default (anki=info).
+logLevel: ""
+
+# -- Any other environment variable, as a flat map of name to value. Rendered after the structured
+# values above, in key order. A key the chart already sets, or that the image fixes (SYNC_PORT,
+# SYNC_BASE, SYNC_HOST, SYNC_USER<n>, PASSWORDS_HASHED), fails the template.
+env: {}
+
+# -- Additional environment variables as a list of name/value(From) entries, appended after
+# env above. Use this for valueFrom references; prefer env for plain values.
+extraEnvVars: []
+
+# -- envFrom sources (ConfigMaps or Secrets) added to the container, after the users Secret.
+extraEnvFrom: []
+
+ingress:
+  # -- Create an Ingress. Full syncs of a large collection upload tens of MB in one request, so
+  # raise the controller's body-size limit to match maxPayloadMegs (see README.md).
+  enabled: false
+  # -- IngressClass to use.
+  className: ""
+  # -- Annotations added to the Ingress.
+  annotations: {}
+  # -- Hosts and paths routed to the sync server. Anki serves /sync and /msync at the root, so
+  # route the whole host; a sub-path does not work.
+  hosts:
+    - host: anki.local
+      paths:
+        - path: /
+          pathType: Prefix
+  # -- TLS configuration blocks, as in a standard networking.k8s.io/v1 Ingress spec.
+  tls: []
+
+httpRoute:
+  # -- Create a Gateway API HTTPRoute (gateway.networking.k8s.io/v1). Requires the Gateway API
+  # CRDs and a Gateway to attach to.
+  enabled: false
+  # -- Annotations added to the HTTPRoute.
+  annotations: {}
+  # -- Gateways the route attaches to, e.g. [{name: public, namespace: gateway, sectionName: https}].
+  parentRefs: []
+  # -- Hostnames the route matches.
+  hostnames: []
+  # -- Matches for the single rule forwarding to the Service, as in an HTTPRoute rule.
+  matches:
+    - path:
+        type: PathPrefix
+        value: /
+
+persistence:
+  # -- Persist /anki_data (every user's collection and media). Disabling it uses an emptyDir:
+  # every pod restart then loses all synced data, so only do that for throwaway testing.
+  enabled: true
+  # -- Use an existing PersistentVolumeClaim instead of creating one. Every other persistence
+  # value is ignored when set.
+  existingClaim: ""
+  # -- Size of the PersistentVolumeClaim. Media dominates: budget for every user's media folder.
+  size: 5Gi
+  # -- StorageClass for the PersistentVolumeClaim. Empty string uses the cluster's default StorageClass.
+  storageClass: ""
+  # -- Access modes for the PersistentVolumeClaim.
+  accessModes:
+    - ReadWriteOnce
+  # -- Annotations added to the PersistentVolumeClaim.
+  annotations: {}
+  # -- Keep the chart-created PersistentVolumeClaim on `helm uninstall` (helm.sh/resource-policy:
+  # keep), so years of review history don't go with an uninstall typo. Delete the claim by hand
+  # once it is genuinely no longer needed.
+  keep: true
+
+# -- Additional volumes added to the pod.
+extraVolumes: []
+
+# -- Additional volumeMounts added to the container.
+extraVolumeMounts: []
+
+# -- Deployment strategy. Recreate by default: the RWO data volume cannot be attached to the new
+# pod while the old one still holds it, and two processes on one SQLite file risks corruption.
+strategy:
+  type: Recreate
+
+# Every probe targets GET /health on the HTTP port, which needs no authentication.
+startupProbe:
+  # -- Enable a startup probe that gates the readiness and liveness probes until the server is up.
+  enabled: true
+  # -- Seconds between startup checks.
+  periodSeconds: 2
+  # -- Seconds before a startup check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures allowed before the container is considered to have failed to start.
+  failureThreshold: 30
+
+readinessProbe:
+  # -- Seconds between readiness checks.
+  periodSeconds: 10
+  # -- Seconds before a readiness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the pod is marked not ready.
+  failureThreshold: 3
+
+livenessProbe:
+  # -- Seconds between liveness checks.
+  periodSeconds: 20
+  # -- Seconds before a liveness check times out.
+  timeoutSeconds: 5
+  # -- Consecutive failures before the container is restarted.
+  failureThreshold: 6
+
+# -- Resource requests and limits for the container.
+resources: {}
+
+# -- Node selector for pod scheduling.
+nodeSelector: {}
+
+# -- Tolerations for pod scheduling.
+tolerations: []
+
+# -- Affinity rules for pod scheduling.
+affinity: {}
+
+# -- PriorityClass for the pod.
+priorityClassName: ""
+
+test:
+  image:
+    # -- Image used by the helm test hook, which checks /health and logs in as the first user
+    # through the Service.
+    repository: curlimages/curl
+    # -- Tag of the test image.
+    tag: "8.23.0"
+    # -- Pull policy of the test image.
+    pullPolicy: IfNotPresent

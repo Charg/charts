@@ -1,0 +1,307 @@
+---
+suite: test deployment
+templates:
+  - deployment.yaml
+  - secret.yaml
+set:
+  users:
+    - name: alice
+      password: alice-password
+tests:
+  - it: runs a single non-root replica with the Recreate strategy and the appVersion image by default
+    template: deployment.yaml
+    chart:
+      appVersion: 0.0.0-test
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/charg/anki-sync-server:0.0.0-test
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 65532
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: honours an explicit image tag
+    template: deployment.yaml
+    set:
+      image:
+        tag: "26.05"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/charg/anki-sync-server:26.05
+
+  - it: pulls by digest when one is set
+    template: deployment.yaml
+    chart:
+      appVersion: 0.0.0-test
+    set:
+      image:
+        digest: sha256:0123abcd
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/charg/anki-sync-server:0.0.0-test@sha256:0123abcd
+
+  - it: renders no env and loads users from the chart Secret by default
+    template: deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: RELEASE-NAME-anki-sync-server
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8080
+
+  - it: loads users from an existing Secret instead, with no checksum
+    template: deployment.yaml
+    set:
+      users: []
+      existingSecret: anki-users
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].envFrom[0].secretRef.name
+          value: anki-users
+      - notExists:
+          path: spec.template.metadata.annotations
+
+  - it: rolls the pod when the users change
+    template: deployment.yaml
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/secret"]
+
+  - it: renders the structured environment, then env in key order, then extraEnvVars
+    template: deployment.yaml
+    set:
+      passwordsHashed: true
+      ipHeader: RightmostXForwardedFor
+      maxPayloadMegs: 250
+      logLevel: anki=debug
+      env:
+        ZED: "1"
+        ALPHA: true
+      extraEnvVars:
+        - name: FROM_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: other
+              key: k
+      extraEnvFrom:
+        - configMapRef:
+            name: extra
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: PASSWORDS_HASHED
+              value: "1"
+            - name: SYNC_IP_HEADER
+              value: RightmostXForwardedFor
+            - name: MAX_SYNC_PAYLOAD_MEGS
+              value: "250"
+            - name: RUST_LOG
+              value: anki=debug
+            - name: ALPHA
+              value: "true"
+            - name: ZED
+              value: "1"
+            - name: FROM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: other
+                  key: k
+      - equal:
+          path: spec.template.spec.containers[0].envFrom
+          value:
+            - secretRef:
+                name: RELEASE-NAME-anki-sync-server
+            - configMapRef:
+                name: extra
+
+  - it: never renders PASSWORDS_HASHED when false, since the server only checks it is present
+    template: deployment.yaml
+    set:
+      passwordsHashed: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env
+
+  - it: probes /health
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+
+  - it: can drop the startup probe
+    template: deployment.yaml
+    set:
+      startupProbe:
+        enabled: false
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].startupProbe
+
+  - it: mounts the data claim and a writable /tmp
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - name: data
+              mountPath: /anki_data
+            - name: tmp
+              mountPath: /tmp
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: RELEASE-NAME-anki-sync-server
+
+  - it: uses an existing claim when set
+    template: deployment.yaml
+    set:
+      persistence:
+        existingClaim: anki-data
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            persistentVolumeClaim:
+              claimName: anki-data
+
+  - it: falls back to an emptyDir without persistence
+    template: deployment.yaml
+    set:
+      persistence:
+        enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            emptyDir: {}
+
+  - it: fails without any user
+    template: deployment.yaml
+    set:
+      users: []
+    asserts:
+      - failedTemplate:
+          errorPattern: refuses to start without at least one user
+
+  - it: fails with both users and existingSecret
+    template: deployment.yaml
+    set:
+      existingSecret: anki-users
+    asserts:
+      - failedTemplate:
+          errorMessage: set only one of users or existingSecret, not both
+
+  - it: fails on a user without a password
+    template: deployment.yaml
+    set:
+      users:
+        - name: alice
+    asserts:
+      - failedTemplate:
+          errorMessage: users[0] needs both name and password
+
+  - it: fails on a user name containing a colon
+    template: deployment.yaml
+    set:
+      users:
+        - name: "a:b"
+          password: x
+    asserts:
+      - failedTemplate:
+          errorPattern: must not contain ':'
+
+  - it: fails on a duplicate user name
+    template: deployment.yaml
+    set:
+      users:
+        - name: alice
+          password: x
+        - name: alice
+          password: y
+    asserts:
+      - failedTemplate:
+          errorPattern: users\[1\]\.name "alice" is listed twice
+
+  - it: fails on an unknown ipHeader
+    template: deployment.yaml
+    set:
+      ipHeader: X-Forwarded-For
+    asserts:
+      - failedTemplate:
+          errorPattern: ipHeader must be one of
+
+  - it: fails on an env key the chart already renders
+    template: deployment.yaml
+    set:
+      logLevel: anki=debug
+      env:
+        RUST_LOG: anki=info
+    asserts:
+      - failedTemplate:
+          errorPattern: env\.RUST_LOG is set by the chart or fixed by the image
+
+  - it: fails on an env key the image fixes or the users Secret owns
+    template: deployment.yaml
+    set:
+      env:
+        SYNC_BASE: /elsewhere
+    asserts:
+      - failedTemplate:
+          errorPattern: env\.SYNC_BASE is set by the chart
+
+  - it: fails on a SYNC_USER key in env
+    template: deployment.yaml
+    set:
+      env:
+        SYNC_USER2: bob:pw
+    asserts:
+      - failedTemplate:
+          errorPattern: env\.SYNC_USER2 is set by the chart
+
+  - it: allows RUST_LOG through env when logLevel is unset
+    template: deployment.yaml
+    set:
+      env:
+        RUST_LOG: anki=warn
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RUST_LOG
+            value: anki=warn

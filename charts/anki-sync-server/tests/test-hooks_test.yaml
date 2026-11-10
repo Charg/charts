@@ -1,0 +1,56 @@
+---
+suite: test helm test hook
+templates:
+  - tests/test-connection.yaml
+set:
+  users:
+    - name: alice
+      password: alice-password
+tests:
+  - it: is a helm test hook that never carries the selector labels
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: test
+      - notExists:
+          path: metadata.labels["app.kubernetes.io/name"]
+
+  - it: checks /health and logs in as the first user through the Service
+    asserts:
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'base="http://RELEASE-NAME-anki-sync-server:80"'
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: '/sync/hostKey'
+      # Required for the login to pass at all when ipHeader is set.
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: "-H 'X-Forwarded-For: 127.0.0.1'"
+      - equal:
+          path: spec.containers[0].env
+          value:
+            - name: SYNC_USER1
+              valueFrom:
+                secretKeyRef:
+                  name: RELEASE-NAME-anki-sync-server
+                  key: SYNC_USER1
+
+  - it: reads the first user from an existing Secret
+    set:
+      users: []
+      existingSecret: anki-users
+    asserts:
+      - equal:
+          path: spec.containers[0].env[0].valueFrom.secretKeyRef.name
+          value: anki-users
+
+  - it: skips the login when passwords are hashed
+    set:
+      passwordsHashed: true
+    asserts:
+      - notExists:
+          path: spec.containers[0].env
+      - notMatchRegex:
+          path: spec.containers[0].command[2]
+          pattern: '/sync/hostKey'

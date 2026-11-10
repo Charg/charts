@@ -1,0 +1,20 @@
+---
+# Exercises Ingress rendering and admission, several users (including a password with JSON
+# metacharacters, which the helm test has to escape) and the structured environment. kind has
+# no ingress controller installed, so this proves the resource is accepted by the API server,
+# not that traffic flows through it.
+users:
+  - name: alice
+    password: 'p"ass\word:with:colons'
+  - name: bob
+    password: bob-password
+ipHeader: RightmostXForwardedFor
+maxPayloadMegs: 200
+logLevel: anki=debug
+ingress:
+  enabled: true
+  hosts:
+    - host: anki.ci.local
+      paths:
+        - path: /
+          pathType: Prefix

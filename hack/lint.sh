@@ -35,10 +35,16 @@ kubeconform_args=(
 
 while IFS= read -r chart; do
   echo "--> ${chart#"${REPO_ROOT}/"}"
-  value_files=("${chart}/values.yaml")
+  # Render each ci/ scenario (helm layers it over values.yaml). Bare defaults are rendered only
+  # for a chart with no scenarios: a chart may require a value (anki-sync-server needs a user)
+  # and deliberately fail to render without it, and every chart has a ci/default-values.yaml.
+  value_files=()
   while IFS= read -r ci_values; do
     value_files+=("${ci_values}")
   done < <(find "${chart}/ci" -maxdepth 1 -name '*-values.yaml' 2>/dev/null | sort)
+  if [ "${#value_files[@]}" -eq 0 ]; then
+    value_files=("${chart}/values.yaml")
+  fi
 
   for values in "${value_files[@]}"; do
     echo "    values: $(basename "${values}")"

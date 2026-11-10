@@ -1,0 +1,31 @@
+The Anki sync server is running as a single-replica Deployment.
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled. /anki_data is an emptyDir and every user's collection and
+media is lost when the pod restarts. Do not use this for anything but throwaway testing.
+{{- end }}
+
+1. Reach the sync server:
+{{- if .Values.ingress.enabled }}
+   {{- range .Values.ingress.hosts }}
+   http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/
+   {{- end }}
+{{- else if .Values.httpRoute.enabled }}
+   {{- range .Values.httpRoute.hostnames }}
+   https://{{ . }}/
+   {{- end }}
+{{- else }}
+
+   kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "anki-sync-server.fullname" . }} 8080:{{ .Values.service.port }}
+
+   Then use http://127.0.0.1:8080/ (from the same machine only).
+{{- end }}
+
+2. Point each Anki client at that URL: on desktop, Preferences > Syncing > Self-hosted sync
+   server; on AnkiDroid, Settings > Sync > Custom sync server (set the same URL for collection
+   and media sync). Then log in with a user from
+   {{- if .Values.existingSecret }} the {{ .Values.existingSecret }} Secret{{ else }} users{{ end }}.
+
+3. Verify the deployment:
+
+   helm test {{ .Release.Name }} --namespace {{ .Release.Namespace }}

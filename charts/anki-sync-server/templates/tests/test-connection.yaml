@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "anki-sync-server.fullname" . }}-test-connection"
+  labels:
+    {{- include "anki-sync-server.testLabels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    # The curl image's user is named (curl_user), which runAsNonRoot cannot verify; pin its uid.
+    runAsUser: 100
+    runAsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: sync-check
+      image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
+      imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      {{- if not .Values.passwordsHashed }}
+      env:
+        - name: SYNC_USER1
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "anki-sync-server.usersSecretName" . }}
+              key: SYNC_USER1
+      {{- end }}
+      command:
+        - sh
+        - -c
+        - |
+          set -eu
+          base="http://{{ include "anki-sync-server.fullname" . }}:{{ .Values.service.port }}"
+
+          # /health needs no auth and answers once the server is listening.
+          curl -sf --max-time 10 "${base}/health"
+          echo "health: ok"
+          {{- if .Values.passwordsHashed }}
+
+          # passwordsHashed: the Secret holds a hash, not a password this test could log in with.
+          echo "login: skipped (passwordsHashed)"
+          {{- else }}
+
+          # Log in as the first user, the way a client does before a sync: proves the users
+          # Secret reached the server and its password check passes. Uses the legacy uncompressed
+          # form of the request so plain curl can make it. With ipHeader set, the server rejects
+          # any request lacking that header, so present every client-IP header it knows, as a
+          # proxy would.
+          user="${SYNC_USER1%%:*}"
+          pass="${SYNC_USER1#*:}"
+          json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+          response="$(curl -sf --max-time 10 \
+            -H 'X-Forwarded-For: 127.0.0.1' -H 'Forwarded: for=127.0.0.1' -H 'X-Real-IP: 127.0.0.1' \
+            -H 'CF-Connecting-IP: 127.0.0.1' -H 'True-Client-IP: 127.0.0.1' -H 'Fly-Client-IP: 127.0.0.1' \
+            -H 'CloudFront-Viewer-Address: 127.0.0.1:443' \
+            --form-string c=0 \
+            --form-string "data={\"u\":\"$(json_escape "${user}")\",\"p\":\"$(json_escape "${pass}")\"}" \
+            "${base}/sync/hostKey")"
+          echo "${response}" | grep -q '"key"'
+          echo "login as ${user}: ok"
+          {{- end }}

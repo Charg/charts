@@ -1,0 +1,21 @@
+---
+apiVersion: v2
+name: anki-sync-server
+description: Anki's self-hosted sync server, for syncing decks, review history and media between Anki clients.
+type: application
+version: 0.1.0
+appVersion: "26.09.4"
+keywords:
+  - anki
+  - sync
+  - flashcards
+  - spaced-repetition
+home: https://docs.ankiweb.net/sync-server.html
+sources:
+  - https://github.com/Charg/charts
+  - https://github.com/Charg/containers/tree/main/images/anki-sync-server
+  - https://github.com/ankitects/anki
+maintainers:
+  - name: chris
+    email: chris@syn.sh
+icon: https://raw.githubusercontent.com/ankitects/anki/main/qt/aqt/data/web/imgs/anki-logo-thin.png

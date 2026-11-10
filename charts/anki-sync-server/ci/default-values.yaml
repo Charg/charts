@@ -1,0 +1,5 @@
+---
+# Defaults plus the one required value: a single user, which the helm test logs in as.
+users:
+  - name: ci
+    password: ci-password
