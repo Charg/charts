@@ -7,7 +7,7 @@ panel, SSO, SMTP and mobile push all configurable from values.
 ## Install
 
 ```bash
-helm install vault oci://ghcr.io/charg/vaultwarden \
+helm install vault oci://ghcr.io/charg/charts/vaultwarden \
   --set domain=https://vault.example.com
 ```
 

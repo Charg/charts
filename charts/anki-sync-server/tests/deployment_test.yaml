@@ -23,7 +23,7 @@ tests:
           value: Recreate
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/charg/anki-sync-server:0.0.0-test
+          value: ghcr.io/charg/containers/anki-sync-server:0.0.0-test
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
@@ -45,7 +45,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/charg/anki-sync-server:26.05
+          value: ghcr.io/charg/containers/anki-sync-server:26.05
 
   - it: pulls by digest when one is set
     template: deployment.yaml
@@ -57,7 +57,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/charg/anki-sync-server:0.0.0-test@sha256:0123abcd
+          value: ghcr.io/charg/containers/anki-sync-server:0.0.0-test@sha256:0123abcd
 
   - it: renders no env and loads users from the chart Secret by default
     template: deployment.yaml

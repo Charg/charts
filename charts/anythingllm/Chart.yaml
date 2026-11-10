@@ -3,7 +3,7 @@ apiVersion: v2
 name: anythingllm
 description: All-in-one AI workspace with chat, RAG over your documents and agents, against any LLM provider.
 type: application
-version: 0.1.1
+version: 0.1.2
 appVersion: "1.19.0"
 keywords:
   - anythingllm

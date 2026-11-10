@@ -17,6 +17,9 @@ require_tools helm curl
 
 # GHCR rejects uppercase path segments; this repo's owner has one.
 OWNER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+# Charts live under a charts/ path so they never collide with an image of the same name, which
+# Charg/containers publishes under containers/.
+NAMESPACE="${OWNER}/charts"
 
 chart_field() {
   # $1 chart dir, $2 top-level Chart.yaml key. `helm show chart` normalizes the file, so a
@@ -24,7 +27,7 @@ chart_field() {
   helm show chart "$1" | grep -E "^$2:" | head -1 | awk '{print $2}' | tr -d '"'"'"
 }
 
-# Resolves whether ${OWNER}/${2}:${3} already exists in GHCR. Prints exactly one of "missing" or
+# Resolves whether ${1}/${2}:${3} already exists in GHCR. Prints exactly one of "missing" or
 # "published" on success; on anything else it prints a message to stderr and exits non-zero,
 # which the caller must NOT swallow inside a command substitution used as an if/case subject
 # (that would run in a subshell and silently discard the abort). Assign to a plain variable
@@ -80,12 +83,12 @@ while IFS= read -r chart; do
   version="$(chart_field "${chart}" version)"
   path="${chart#"${REPO_ROOT}"/}"
 
-  echo "==> ${name} ${version}: checking ghcr.io/${OWNER}/${name}" >&2
+  echo "==> ${name} ${version}: checking ghcr.io/${NAMESPACE}/${name}" >&2
 
   # Plain assignment, not a case/if subject directly: probe_registry's exit on abort must
   # reach `set -e` here, and a command substitution used as a compound command's subject
   # runs in a subshell where that exit would otherwise go unnoticed.
-  result="$(probe_registry "${OWNER}" "${name}" "${version}")"
+  result="$(probe_registry "${NAMESPACE}" "${name}" "${version}")"
 
   case "${result}" in
     missing)

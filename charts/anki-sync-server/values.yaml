@@ -11,7 +11,7 @@
 image:
   # -- Image repository. Built from upstream source by github.com/Charg/containers, signed with
   # cosign, and running as a non-root user.
-  repository: ghcr.io/charg/anki-sync-server
+  repository: ghcr.io/charg/containers/anki-sync-server
   # -- Image pull policy.
   pullPolicy: IfNotPresent
   # -- Image tag. Defaults to .Chart.AppVersion when empty.

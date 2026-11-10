@@ -23,6 +23,9 @@ CHART="$1"
 
 # GHCR rejects uppercase path segments; this repo's owner has one.
 OWNER="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+# Charts live under a charts/ path so they never collide with an image of the same name, which
+# Charg/containers publishes under containers/.
+NAMESPACE="${OWNER}/charts"
 
 chart_field() {
   helm show chart "$1" | grep -E "^$2:" | head -1 | awk '{print $2}' | tr -d '"'"'"
@@ -30,17 +33,17 @@ chart_field() {
 
 NAME="$(chart_field "${CHART}" name)"
 VERSION="$(chart_field "${CHART}" version)"
-REF="ghcr.io/${OWNER}/${NAME}"
+REF="ghcr.io/${NAMESPACE}/${NAME}"
 
 echo "==> packaging ${NAME}-${VERSION}"
 package_dir="$(mktemp -d)"
 trap 'rm -rf "${package_dir}"' EXIT
 helm package "${CHART}" --destination "${package_dir}"
 
-echo "==> pushing to oci://ghcr.io/${OWNER}"
+echo "==> pushing to oci://ghcr.io/${NAMESPACE}"
 # helm prints the resolved digest on push; that is the only identifier this script trusts. The
 # tag it just pushed under is mutable, so a signature over the tag would assert nothing.
-push_output="$(helm push "${package_dir}/${NAME}-${VERSION}.tgz" "oci://ghcr.io/${OWNER}" 2>&1 | tee /dev/stderr)"
+push_output="$(helm push "${package_dir}/${NAME}-${VERSION}.tgz" "oci://ghcr.io/${NAMESPACE}" 2>&1 | tee /dev/stderr)"
 DIGEST="$(printf '%s\n' "${push_output}" | grep -oE 'sha256:[0-9a-f]{64}' | head -1)"
 
 if [ -z "${DIGEST}" ]; then

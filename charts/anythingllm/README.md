@@ -8,7 +8,7 @@ provider you point it at; the chart has no opinion beyond passing the settings t
 ## Install
 
 ```bash
-helm install anythingllm oci://ghcr.io/charg/anythingllm \
+helm install anythingllm oci://ghcr.io/charg/charts/anythingllm \
   --set auth.password=change-me
 ```
 

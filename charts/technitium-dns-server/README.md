@@ -25,13 +25,13 @@ is repeated in the output of `helm install`/`helm upgrade` (see `templates/NOTES
 ## Install
 
 ```bash
-helm install my-dns oci://ghcr.io/charg/technitium-dns-server
+helm install my-dns oci://ghcr.io/charg/charts/technitium-dns-server
 ```
 
 ## Quickstart with a bootstrap admin password
 
 ```bash
-helm install my-dns oci://ghcr.io/charg/technitium-dns-server \
+helm install my-dns oci://ghcr.io/charg/charts/technitium-dns-server \
   --set auth.adminPassword=change-me
 ```
 

@@ -3,7 +3,7 @@ apiVersion: v2
 name: anki-sync-server
 description: Anki's self-hosted sync server, for syncing decks, review history and media between Anki clients.
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "26.09.4"
 keywords:
   - anki

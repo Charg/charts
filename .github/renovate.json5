@@ -72,7 +72,7 @@
     {
       // Anki sync server, built by Charg/containers and tagged with the upstream Anki version
       // (YY.MM or YY.MM.patch). Only follow those plain release tags.
-      matchDepNames: ["charg/anki-sync-server"],
+      matchDepNames: ["charg/containers/anki-sync-server"],
       versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)(\\.(?<patch>\\d+))?$",
       groupName: "anki-sync-server",
       commitMessageTopic: "Anki sync server",
@@ -96,7 +96,7 @@
       customType: "regex",
       managerFilePatterns: ["/^charts/anki-sync-server/Chart\\.yaml$/"],
       matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
-      depNameTemplate: "charg/anki-sync-server",
+      depNameTemplate: "charg/containers/anki-sync-server",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://ghcr.io",
     },

@@ -3,13 +3,13 @@
 [Anki](https://apps.ankiweb.net)'s self-hosted [sync server](https://docs.ankiweb.net/sync-server.html),
 which syncs collections, review history and media between Anki desktop, AnkiDroid and AnkiMobile
 without AnkiWeb. Deployed as a single-replica Deployment from
-[`ghcr.io/charg/anki-sync-server`](https://github.com/Charg/containers/tree/main/images/anki-sync-server),
+[`ghcr.io/charg/containers/anki-sync-server`](https://github.com/Charg/containers/tree/main/images/anki-sync-server),
 an image built from upstream source, running as a non-root user and signed with cosign.
 
 ## Install
 
 ```bash
-helm install anki oci://ghcr.io/charg/anki-sync-server \
+helm install anki oci://ghcr.io/charg/charts/anki-sync-server \
   --set 'users[0].name=alice' --set 'users[0].password=correct-horse'
 ```
 
@@ -82,7 +82,7 @@ security fixes. Pin `image.digest` if you need byte-for-byte reproducible deploy
 signature with:
 
 ```bash
-cosign verify ghcr.io/charg/anki-sync-server:26.09.4 \
+cosign verify ghcr.io/charg/containers/anki-sync-server:26.09.4 \
   --certificate-identity-regexp '^https://github.com/Charg/containers/\.github/workflows/release\.yaml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

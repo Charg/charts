@@ -60,8 +60,12 @@ container.
 Distribution is OCI only.
 
 Merging a chart version bump to `main` publishes that chart to
-`ghcr.io/charg/<chart>` (the repository owner, lowercased, since GHCR rejects uppercase
-path segments). The release workflow decides what to publish by querying the registry for
+`ghcr.io/charg/charts/<chart>` (the repository owner, lowercased, since GHCR rejects uppercase
+path segments). The `charts/` path keeps chart names apart from images of the same name, which
+[Charg/containers](https://github.com/Charg/containers) publishes under `ghcr.io/charg/containers/`.
+Charts published before this layout, at `ghcr.io/charg/<chart>`, are no longer updated.
+
+The release workflow decides what to publish by querying the registry for
 each chart's current version, not by diffing git history, and aborts rather than publish on
 any ambiguous registry response. Each published version is signed keylessly with cosign
 against its digest, verified in the same run, and carries build provenance.
@@ -74,7 +78,7 @@ visibility it currently has, so this is a one-time flip per chart, not per versi
 ## Installing a chart
 
 ```bash
-helm install my-release oci://ghcr.io/charg/<chart> --version <version>
+helm install my-release oci://ghcr.io/charg/charts/<chart> --version <version>
 ```
 
 Chart names match the table above; versions match each chart's `Chart.yaml`.
@@ -89,7 +93,7 @@ trusting this repository's maintainers, only GitHub's OIDC issuer.
 Resolve the digest first (`helm pull` prints it, same as the release workflow does):
 
 ```bash
-helm pull oci://ghcr.io/charg/<chart> --version <version>
+helm pull oci://ghcr.io/charg/charts/<chart> --version <version>
 ```
 
 Verify the cosign signature against the release workflow's own identity:
@@ -98,13 +102,13 @@ Verify the cosign signature against the release workflow's own identity:
 cosign verify \
   --certificate-identity "https://github.com/Charg/charts/.github/workflows/release.yaml@refs/heads/main" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  ghcr.io/charg/<chart>@<digest>
+  ghcr.io/charg/charts/<chart>@<digest>
 ```
 
 Verify build provenance:
 
 ```bash
-gh attestation verify oci://ghcr.io/charg/<chart>@<digest> --repo Charg/charts
+gh attestation verify oci://ghcr.io/charg/charts/<chart>@<digest> --repo Charg/charts
 ```
 
 Both commands need to reach `ghcr.io`; while a chart's package is still private (see the

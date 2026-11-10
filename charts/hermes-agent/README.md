@@ -9,7 +9,7 @@ provider you point it at.
 ## Install
 
 ```bash
-helm install hermes oci://ghcr.io/charg/hermes-agent \
+helm install hermes oci://ghcr.io/charg/charts/hermes-agent \
   --set apiServer.key="$(openssl rand -hex 32)"
 ```
 
