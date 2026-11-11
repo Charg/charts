@@ -78,12 +78,12 @@
       commitMessageTopic: "Technitium DNS server",
     },
     {
-      // Same for Vaultwarden. Its Docker Hub repo also publishes "-alpine" variants of every
-      // release; Docker versioning treats the suffix as a compatibility marker, so a plain
-      // "1.37.4" appVersion only ever moves to the next plain tag.
-      matchDepNames: ["vaultwarden/server"],
-      groupName: "vaultwarden server",
-      commitMessageTopic: "Vaultwarden server",
+      // Vaultwarden, built by Charg/containers and tagged with the upstream version (X.Y.Z), next
+      // to an immutable "X.Y.Z-<hash>" tag per build. Only follow the plain release tags.
+      matchDepNames: ["charg/containers/vaultwarden"],
+      versioning: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      groupName: "vaultwarden",
+      commitMessageTopic: "Vaultwarden",
     },
     {
       // Same for AnythingLLM. Its Docker Hub repo also publishes "pg-", "railway-" and "render-"
@@ -150,9 +150,9 @@
         "appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
         "charg\\.github\\.io/image-digest:\\s*\"?(?<currentDigest>sha256:[a-f0-9]{64})\"?",
       ],
-      depNameTemplate: "vaultwarden/server",
+      depNameTemplate: "charg/containers/vaultwarden",
       datasourceTemplate: "docker",
-      registryUrlTemplate: "https://index.docker.io",
+      registryUrlTemplate: "https://ghcr.io",
     },
     {
       customType: "regex",

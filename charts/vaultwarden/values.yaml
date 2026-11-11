@@ -14,12 +14,14 @@
 # panel by leaving admin.token unset.
 
 image:
-  # -- Image repository.
-  repository: docker.io/vaultwarden/server
+  # -- Image repository. Built from upstream source by github.com/Charg/containers, signed with
+  # cosign, on distroless as a non-root user, with the web vault bundled. SQLite only: see
+  # database below for PostgreSQL or MySQL.
+  repository: ghcr.io/charg/containers/vaultwarden
   # -- Image pull policy.
   pullPolicy: IfNotPresent
-  # -- Image tag. Defaults to .Chart.AppVersion when empty. Append "-alpine" here for the Alpine
-  # variant of the same release. Setting a tag opts out of the chart's pinned digest.
+  # -- Image tag. Defaults to .Chart.AppVersion when empty. Setting a tag opts out of the chart's
+  # pinned digest.
   tag: ""
   # -- Image digest, e.g. "sha256:...". Empty with tag also empty pulls the appVersion image by
   # the digest the chart was released with (the charg.github.io/image-digest annotation in
@@ -53,15 +55,15 @@ podAnnotations: {}
 # -- Labels added to the pod.
 podLabels: {}
 
-# -- Pod-level securityContext. Upstream's image runs as root, but works as any user: the chart
-# runs it as 1000 and fsGroup makes the data volume and the mounted credential files (0440)
-# readable and writable by it. Meets the "restricted" Pod Security Standard. See "Running
-# unprivileged" in README.md before upgrading an install whose data was written as root.
+# -- Pod-level securityContext. The image runs as distroless' nonroot user (65532); fsGroup makes
+# the data volume and the mounted credential files (0440) readable and writable by it. Meets the
+# "restricted" Pod Security Standard. See "Running unprivileged" in README.md before upgrading an
+# install whose data was written by another user.
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 1000
-  runAsGroup: 1000
-  fsGroup: 1000
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
   fsGroupChangePolicy: OnRootMismatch
   seccompProfile:
     type: RuntimeDefault
@@ -75,9 +77,8 @@ securityContext:
     drop:
       - ALL
 
-# -- Port Vaultwarden listens on inside the container, sent as ROCKET_PORT. Defaults to 8080
-# rather than the image's 80 so the same chart works unchanged when running as a non-root user,
-# which cannot bind a port below 1024.
+# -- Port Vaultwarden listens on inside the container, sent as ROCKET_PORT. 8080 is also the
+# image's own default; a non-root user cannot bind a port below 1024.
 containerPort: 8080
 
 service:
@@ -133,7 +134,9 @@ admin:
 # -- The database connection. Unset (and no existingSecret) uses SQLite at /data/db.sqlite3 on
 # the persistent volume, which is Vaultwarden's default and right for most installs. The URL
 # carries the password, so it is always mounted as a file (DATABASE_URL_FILE), never put in the
-# pod spec.
+# pod spec. The chart's default image is built with SQLite only, so setting this also requires
+# an image with PostgreSQL/MySQL support (e.g. image.repository docker.io/vaultwarden/server
+# plus image.tag); the template fails otherwise.
 database:
   # -- DATABASE_URL, e.g. "postgresql://user:password@host:5432/vaultwarden" or
   # "mysql://user:password@host:3306/vaultwarden". Chart generates a Secret from this value when
