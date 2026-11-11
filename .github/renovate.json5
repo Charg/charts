@@ -16,6 +16,11 @@
   rangeStrategy: "pin",
   configMigration: true,
 
+  // Keep in sync with the gh-actions-lock version used locally.
+  constraints: {
+    ghActionsLock: "v0.4.1",
+  },
+
   // Merge without review once CI is green, via GitHub's native auto-merge (main's ruleset
   // requires the ci checks). Nobody looks at these PRs first, so let each release age a week:
   // upstream yanks or re-tags a bad release in that window instead of it reaching ghcr.
