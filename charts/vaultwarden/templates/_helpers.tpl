@@ -317,6 +317,13 @@ Template-time validation. Rendered (to nothing) by the Deployment so every failu
 {{- fail "extraVolumeMounts: the chart already mounts an emptyDir at /tmp; remove this mount (and its extraVolumes entry)" }}
 {{- end }}
 {{- end }}
+{{- /*
+The chart's own image is built with SQLite only: Vaultwarden would refuse to start against a
+PostgreSQL or MySQL URL. Catch that here rather than in a crash loop.
+*/}}
+{{- if and (or .Values.database.url .Values.database.existingSecret.name) (eq .Values.image.repository "ghcr.io/charg/containers/vaultwarden") }}
+{{- fail "database: the default image (ghcr.io/charg/containers/vaultwarden) supports SQLite only; for PostgreSQL or MySQL also set image.repository (e.g. docker.io/vaultwarden/server) and image.tag" }}
+{{- end }}
 {{- if and .Values.smtp.host (not .Values.smtp.from) }}
 {{- fail "smtp.from is required when smtp.host is set" }}
 {{- end }}

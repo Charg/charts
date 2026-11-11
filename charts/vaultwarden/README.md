@@ -4,6 +4,11 @@
 password manager server, deployed as a single-replica Deployment with the web vault, the admin
 panel, SSO, SMTP and mobile push all configurable from values.
 
+The default image is `ghcr.io/charg/containers/vaultwarden`, built from upstream source by
+[Charg/containers](https://github.com/Charg/containers/tree/main/images/vaultwarden): the same
+release as upstream's image, on distroless as a non-root user with no shell, signed with cosign,
+and **SQLite only** (see [Database](#database)).
+
 ## Install
 
 ```bash
@@ -58,7 +63,7 @@ changes, the pod rolls automatically. A change to an existing Secret needs a man
 `kubectl rollout restart`, because Vaultwarden reads these files only at start.
 
 Use an Argon2 PHC string for `admin.token`, not a plain token. Generate one with
-`docker run --rm -it vaultwarden/server /vaultwarden hash`. The `$` characters need no escaping
+`docker run --rm -it ghcr.io/charg/containers/vaultwarden:<appVersion> hash`. The `$` characters need no escaping
 here (unlike in a docker-compose file), since the value is written to a file, not interpolated.
 
 ```yaml
@@ -78,11 +83,17 @@ smtp:
 ## Database
 
 Leaving `database.url` and `database.existingSecret` unset uses SQLite at
-`/data/db.sqlite3`, Vaultwarden's default and right for most installs. For PostgreSQL or
-MySQL, supply the full connection URL. With CloudNativePG, the operator's generated
-`<cluster>-app` Secret already carries one:
+`/data/db.sqlite3`, Vaultwarden's default and right for most installs.
+
+The chart's default image is built with SQLite support only, which keeps the PostgreSQL and
+MySQL client libraries out of it. For PostgreSQL or MySQL, switch to upstream's image as well as
+supplying the full connection URL; the template fails if a database is set on the default image.
+With CloudNativePG, the operator's generated `<cluster>-app` Secret already carries the URL:
 
 ```yaml
+image:
+  repository: docker.io/vaultwarden/server
+  tag: 1.37.5  # set a tag: the chart's pinned digest belongs to the default image
 database:
   existingSecret:
     name: vaultwarden-db-app
@@ -139,26 +150,43 @@ httpRoute:
 
 The chart runs Vaultwarden unprivileged by default, meeting the `restricted`
 [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/):
-uid/gid `1000`, no capabilities, no privilege escalation, `RuntimeDefault` seccomp and a
-read-only root filesystem. Upstream's image runs as root, but works as any user: the container
-listens on `8080` (sent as `ROCKET_PORT`), which needs no privileges, and the only writable paths
-it needs are `/data` and `/tmp` (an `emptyDir` the chart always mounts).
+uid/gid `65532` (distroless' `nonroot`, the image's own user), no capabilities, no privilege
+escalation, `RuntimeDefault` seccomp and a read-only root filesystem. The container listens on
+`8080` (sent as `ROCKET_PORT`), which needs no privileges, and the only writable paths it needs
+are `/data` and `/tmp` (an `emptyDir` the chart always mounts).
 
 `fsGroup` is what makes both the data volume and the mounted credential files (mode `0440`,
 owned by root) readable by the non-root user. Storage that ignores `fsGroup` (hostPath-backed
 provisioners such as `local-path`) needs the volume's ownership fixed by hand first.
+
+### Upgrading from 0.2.x
+
+0.3.0 switches the default image from `docker.io/vaultwarden/server` to
+`ghcr.io/charg/containers/vaultwarden` (same Vaultwarden release) and the default user from
+`1000` to `65532`. Before upgrading:
+
+- **External database**: the new image is SQLite only, and the template refuses to render with
+  `database.*` set. Pin the old image with `image.repository: docker.io/vaultwarden/server` and
+  `image.tag`.
+- **Data ownership**: on storage that honours `fsGroup`, the first pod re-owns `/data` to gid
+  `65532` and nothing else is needed. On storage that ignores it, `chown -R 65532:65532` the
+  volume's contents once, or keep the old user with `podSecurityContext.runAsUser`,
+  `runAsGroup` and `fsGroup` set to `1000`.
+- An `image.tag` ending in `-alpine` only exists upstream; drop it, or set `image.repository`
+  back to upstream's too.
 
 ### Upgrading from 0.1.x
 
 Chart versions before 0.2.0 ran the image as root. On an existing install, either:
 
 - let `fsGroup` re-own the volume: on storage that honours it, the first pod after the upgrade
-  makes `/data` group-writable by gid `1000`, and nothing else is needed; or
-- on storage that ignores `fsGroup`, `chown -R 1000:1000` the volume's contents once (for
+  makes `/data` group-writable by the chart's gid (`65532` from 0.3.0), and nothing else is
+  needed; or
+- on storage that ignores `fsGroup`, `chown -R 65532:65532` the volume's contents once (for
   instance from a throwaway root pod mounting the claim) before upgrading; or
-- keep running as root by setting `podSecurityContext: null` and `securityContext: null`. It has
-  to be `null`: Helm merges a map from your values into the chart's defaults, so `{}` changes
-  nothing.
+- keep running as root by setting `image.repository: docker.io/vaultwarden/server`, `image.tag`,
+  `podSecurityContext: null` and `securityContext: null`. It has to be `null`: Helm merges a map
+  from your values into the chart's defaults, so `{}` changes nothing.
 
 Remove any `/tmp` entry from `extraVolumes`/`extraVolumeMounts` that the old hardened example
 added: the chart now mounts its own, and refuses to render a second one.
@@ -202,14 +230,15 @@ for making it writable by the chart's default non-root user. Back up `/data` (or
 
 ## Upgrades
 
-`appVersion` tracks upstream's releases (Renovate opens a PR for each one), and `image.tag`
-defaults to it. Vaultwarden runs any database migrations at start, which is why the startup
-probe allows up to five minutes by default (`startupProbe.failureThreshold` x `periodSeconds`).
-Append `-alpine` to `image.tag` for the Alpine build of the same release.
+`appVersion` tracks the Vaultwarden releases published by Charg/containers (Renovate opens a PR
+for each one, and for each in-place rebuild of the same version for base-image fixes), and
+`image.tag` defaults to it. Vaultwarden runs any database migrations at start, which is why the
+startup probe allows up to five minutes by default (`startupProbe.failureThreshold` x
+`periodSeconds`).
 
 Each chart version pins the image it was tested with by digest (the `charg.github.io/image-digest`
-annotation in `Chart.yaml`), so the deployed image cannot change under you if upstream re-pushes
-a tag. Setting `image.tag` opts out and pulls that tag as-is; set `image.digest` as well to pin it.
+annotation in `Chart.yaml`), so the deployed image cannot change under you when the tag is
+rebuilt. Setting `image.tag` opts out and pulls that tag as-is; set `image.digest` as well to pin it.
 
 ## Values
 
@@ -218,7 +247,7 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 
 | Key | Default | Description |
 | --- | ------- | ----------- |
-| `image.repository` | `docker.io/vaultwarden/server` | Image repository. |
+| `image.repository` | `ghcr.io/charg/containers/vaultwarden` | Image repository (SQLite only). |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
 | `image.tag` | `""` | Image tag. Defaults to `.Chart.AppVersion` when empty. Setting it opts out of the pinned digest. |
 | `image.digest` | `""` | Image digest. Empty, with `image.tag` also empty, uses the digest pinned in `Chart.yaml`. |
@@ -231,7 +260,7 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `serviceAccount.name` | `""` | Name of the ServiceAccount to use. |
 | `podAnnotations` | `{}` | Annotations added to the pod. |
 | `podLabels` | `{}` | Labels added to the pod. |
-| `podSecurityContext` | uid/gid `1000`, `fsGroup` `1000`, `RuntimeDefault` seccomp | Pod-level securityContext. See [Running unprivileged](#running-unprivileged). |
+| `podSecurityContext` | uid/gid `65532`, `fsGroup` `65532`, `RuntimeDefault` seccomp | Pod-level securityContext. See [Running unprivileged](#running-unprivileged). |
 | `securityContext` | no capabilities, no privilege escalation, read-only root filesystem | Container-level securityContext. |
 | `containerPort` | `8080` | Port Vaultwarden listens on in the container, sent as `ROCKET_PORT`. |
 | `service.type` | `ClusterIP` | Service type. |
@@ -246,7 +275,7 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `admin.token` | `""` | Admin panel token (Argon2 PHC string recommended); the panel is disabled when unset. |
 | `admin.existingSecret.name` | `""` | Existing Secret holding the admin token instead. |
 | `admin.existingSecret.key` | `admin-token` | Key within `admin.existingSecret.name`. |
-| `database.url` | `""` | `DATABASE_URL`; SQLite on `/data` when unset. |
+| `database.url` | `""` | `DATABASE_URL`; SQLite on `/data` when unset. Needs a non-default image. |
 | `database.existingSecret.name` | `""` | Existing Secret holding the database URL instead. |
 | `database.existingSecret.key` | `database-url` | Key within `database.existingSecret.name`. |
 | `smtp.host` | `""` | `SMTP_HOST`. |

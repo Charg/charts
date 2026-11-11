@@ -19,7 +19,7 @@ tests:
           value: Recreate
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: ^docker\.io/vaultwarden/server:0\.0\.0-test@sha256:[a-f0-9]{64}$
+          pattern: ^ghcr\.io/charg/containers/vaultwarden:0\.0\.0-test@sha256:[a-f0-9]{64}$
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
@@ -30,11 +30,11 @@ tests:
     template: deployment.yaml
     set:
       image:
-        tag: 1.37.4-alpine
+        tag: 1.37.4
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: docker.io/vaultwarden/server:1.37.4-alpine
+          value: ghcr.io/charg/containers/vaultwarden:1.37.4
 
   - it: pulls an explicit digest, ahead of the chart's pinned one
     template: deployment.yaml
@@ -46,7 +46,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: ^docker\.io/vaultwarden/server:0\.0\.0-test@sha256:0{64}$
+          pattern: ^ghcr\.io/charg/containers/vaultwarden:0\.0\.0-test@sha256:0{64}$
 
   - it: rejects a digest that is not a sha256 digest
     template: deployment.yaml
@@ -56,6 +56,25 @@ tests:
     asserts:
       - failedTemplate: {}
 
+  - it: rejects an external database on the SQLite-only default image
+    template: deployment.yaml
+    set:
+      database:
+        url: postgresql://vw:pw@db:5432/vw
+    asserts:
+      - failedTemplate:
+          errorPattern: supports SQLite only
+
+  - it: rejects an existing database Secret on the SQLite-only default image
+    template: deployment.yaml
+    set:
+      database:
+        existingSecret:
+          name: pg-app
+    asserts:
+      - failedTemplate:
+          errorPattern: supports SQLite only
+
   - it: meets the restricted Pod Security Standard by default
     template: deployment.yaml
     asserts:
@@ -63,9 +82,9 @@ tests:
           path: spec.template.spec.securityContext
           value:
             runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
-            fsGroup: 1000
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
             fsGroupChangePolicy: OnRootMismatch
             seccompProfile:
               type: RuntimeDefault
@@ -144,6 +163,9 @@ tests:
         orgName: Example
       admin:
         token: admin-secret
+      image:
+        repository: docker.io/vaultwarden/server
+        tag: 1.37.5
       database:
         url: postgresql://vw:pw@db:5432/vw
       smtp:
@@ -300,6 +322,9 @@ tests:
   - it: projects inline and existing Secrets into one credentials volume
     template: deployment.yaml
     set:
+      image:
+        repository: docker.io/vaultwarden/server
+        tag: 1.37.5
       admin:
         token: admin-secret
       database:
