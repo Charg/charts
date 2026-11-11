@@ -41,6 +41,9 @@ jobs:
 
       - name: Install nix
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          # Upstream Nix; see publish-chart.yaml.
+          determinate: false
 
       - name: Decide which charts need publishing
         id: plan

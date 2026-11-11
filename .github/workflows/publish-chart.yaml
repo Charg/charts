@@ -46,6 +46,11 @@ jobs:
 
       - name: Install nix
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          # Upstream Nix, not Determinate Nix: Determinate logs in to FlakeHub with the job's OIDC
+          # token whenever id-token: write is granted, and this repo uses nothing from FlakeHub.
+          # Applied in every job so CI tests on the same Nix the release job signs with.
+          determinate: false
 
       - name: Verify image pins and signatures
         env:
