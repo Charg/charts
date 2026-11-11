@@ -23,7 +23,7 @@ web UI also lets you change most settings; it saves them to the server's `.env` 
 file **without overriding variables already in its environment**, so:
 
 - A setting the chart sets (anything under `env`, `auth`, `encryption`, or the chart's own
-  `SERVER_PORT`, `STORAGE_DIR`, `DISABLE_TELEMETRY`) is declarative: changing it in the UI applies
+  `SERVER_PORT`, `STORAGE_DIR`, `DISABLE_TELEMETRY`, `ANYTHINGLLM_CHROMIUM_ARGS`) is declarative: changing it in the UI applies
   until the pod restarts, then reverts to the chart's value.
 - A setting the chart leaves alone is owned by the UI, and survives restarts and upgrades.
 
@@ -108,26 +108,70 @@ controller applies (ingress-nginx: `nginx.ingress.kubernetes.io/proxy-body-size`
 
 ## Running unprivileged
 
-The image runs as its own non-root user (1000:1000) and the default `podSecurityContext` keeps it
-that way, with `fsGroup` making the data volume writable. Two things stop it going further:
+The chart runs AnythingLLM unprivileged by default, meeting the `restricted`
+[Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/):
+the image's own non-root user (1000:1000), no capabilities, no privilege escalation and
+`RuntimeDefault` seccomp, for the init container as well as the server. `fsGroup` makes the data
+volume writable. Two things stop it going further:
 
 - `readOnlyRootFilesystem` is not supported. The entrypoint runs `prisma generate` into the image's
   `node_modules` on every start.
 - The bundled Chromium, used to scrape web pages into documents, wants its sandbox, which upstream
-  enables by granting `SYS_ADMIN`. To drop every capability instead, run Chromium without its
-  sandbox:
+  enables by granting `SYS_ADMIN`. With every capability dropped, the chart runs Chromium without
+  its sandbox instead: while `chromium.sandbox` is `false` (the default) it sets
+  `ANYTHINGLLM_CHROMIUM_ARGS=--no-sandbox,--disable-setuid-sandbox`.
+
+That trade-off means a page that exploits Chromium while being scraped is contained only by the
+container itself, not by Chromium's own sandbox as well. To get the sandbox back, set
+`chromium.sandbox: true` and grant the capability yourself:
 
 ```yaml
-env:
-  ANYTHINGLLM_CHROMIUM_ARGS: "--no-sandbox,--disable-setuid-sandbox"
+chromium:
+  sandbox: true
 securityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop:
       - ALL
+    add:
+      - SYS_ADMIN
 ```
 
-The `ci/hardened-values.yaml` scenario installs exactly this profile.
+`SYS_ADMIN` takes the pod out of both the `baseline` and `restricted` standards, so the namespace
+must allow `privileged` pods.
+
+To pass Chromium other flags, set `ANYTHINGLLM_CHROMIUM_ARGS` in `env` (or `extraEnvVars`): it
+replaces the chart's value rather than being refused as a duplicate. Keep `--no-sandbox` and
+`--disable-setuid-sandbox` in it unless the sandbox is enabled as above.
+
+### Upgrading from 0.1.x
+
+The image already ran as 1000:1000 before 0.2.0, so the data volume needs no changes. If you had
+copied the hardened example from earlier versions, remove `env.ANYTHINGLLM_CHROMIUM_ARGS` unless
+you want flags other than the chart's, and drop the `podSecurityContext`/`securityContext`
+overrides that are now the defaults. If you granted `SYS_ADMIN` for Chromium's sandbox, also set
+`chromium.sandbox: true`, or the chart disables the sandbox you granted it.
+
+## Network policy
+
+`networkPolicy.enabled` renders a NetworkPolicy that admits traffic only to the HTTP port. Narrow
+the sources with `ingressFrom`, typically to your ingress controller or Gateway namespace:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+```
+
+Egress is left open unless `restrictEgress` is set, because AnythingLLM calls out to the LLM
+provider, the embedder and any external vector database, downloads the native embedding model from
+Hugging Face on first use, and fetches arbitrary web pages when scraping documents or running agent
+web-browsing tools, all of which depend on your configuration. With it set, only DNS is allowed;
+add an `extraEgress` rule for each destination you use. The server itself boots with no egress
+beyond DNS.
 
 ## Persistence
 
@@ -157,6 +201,10 @@ one), and `image.tag` defaults to it. Database migrations run on every start, wh
 startup probe allows up to five minutes (`startupProbe.failureThreshold` x `periodSeconds`). Back
 up the volume before an upgrade: migrations are not reversible.
 
+Each chart version pins the image it was tested with by digest (the `charg.github.io/image-digest`
+annotation in `Chart.yaml`), so the deployed image cannot change under you if upstream re-pushes
+a tag. Setting `image.tag` opts out and pulls that tag as-is; set `image.digest` as well to pin it.
+
 ## Values
 
 This table is derived from `values.yaml` (its `# --` comments) and must be regenerated by hand
@@ -166,7 +214,8 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | --- | ------- | ----------- |
 | `image.repository` | `docker.io/mintplexlabs/anythingllm` | Image repository. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
-| `image.tag` | `""` | Image tag. Defaults to `.Chart.AppVersion` when empty. |
+| `image.tag` | `""` | Image tag. Defaults to `.Chart.AppVersion` when empty. Setting it opts out of the pinned digest. |
+| `image.digest` | `""` | Image digest. Empty, with `image.tag` also empty, uses the digest pinned in `Chart.yaml`. |
 | `imagePullSecrets` | `[]` | References to Secrets holding credentials for a private image registry. |
 | `nameOverride` | `""` | Overrides the chart name portion of generated resource names. |
 | `fullnameOverride` | `""` | Overrides the fully generated resource name. |
@@ -176,8 +225,9 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `serviceAccount.name` | `""` | Name of the ServiceAccount to use. |
 | `podAnnotations` | `{}` | Annotations added to the pod. |
 | `podLabels` | `{}` | Labels added to the pod. |
-| `podSecurityContext` | non-root 1000:1000, `fsGroup: 1000` | Pod-level securityContext. See [Running unprivileged](#running-unprivileged). |
-| `securityContext` | `{}` | Container-level securityContext, applied to the init container too. |
+| `podSecurityContext` | non-root 1000:1000, `fsGroup: 1000`, `RuntimeDefault` seccomp | Pod-level securityContext. See [Running unprivileged](#running-unprivileged). |
+| `securityContext` | no capabilities, no privilege escalation | Container-level securityContext, applied to the init container too. |
+| `chromium.sandbox` | `false` | Run Chromium in its sandbox. False sets `ANYTHINGLLM_CHROMIUM_ARGS` to disable it; true needs `SYS_ADMIN`. |
 | `containerPort` | `3001` | Port the server listens on in the container, sent as `SERVER_PORT`. |
 | `service.type` | `ClusterIP` | Service type. |
 | `service.port` | `80` | Service port for HTTP and WebSocket traffic. |
@@ -194,7 +244,7 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `encryption.existingSecret.name` | `""` | Existing Secret holding both `SIG_KEY` and `SIG_SALT` instead. |
 | `encryption.existingSecret.keyKey` | `sig-key` | Key within `encryption.existingSecret.name` holding `SIG_KEY`. |
 | `encryption.existingSecret.saltKey` | `sig-salt` | Key within `encryption.existingSecret.name` holding `SIG_SALT`. |
-| `env` | `{}` | Any other AnythingLLM setting, as a flat name-to-value map. |
+| `env` | `{}` | Any other AnythingLLM setting, as a flat name-to-value map. `ANYTHINGLLM_CHROMIUM_ARGS` here replaces the chart's. |
 | `extraEnvVars` | `[]` | Additional environment variables (name/value or valueFrom). |
 | `extraEnvFrom` | `[]` | envFrom sources added to the container. |
 | `ingress.enabled` | `false` | Create an Ingress. |
@@ -207,6 +257,11 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `httpRoute.parentRefs` | `[]` | Gateways the route attaches to. Required when enabled. |
 | `httpRoute.hostnames` | `[]` | Hostnames the route matches. |
 | `httpRoute.matches` | `PathPrefix /` | Matches for the rule forwarding to the Service. |
+| `networkPolicy.enabled` | `false` | Create a NetworkPolicy for the pod (needs an enforcing CNI). |
+| `networkPolicy.ingressFrom` | `[]` | Peers allowed to reach the HTTP port. Empty admits any source, to that port only. The chart's helm test pod is always admitted. |
+| `networkPolicy.extraIngress` | `[]` | Additional ingress rules. |
+| `networkPolicy.restrictEgress` | `false` | Allow only DNS egress plus `extraEgress`. LLM providers, embedders, model downloads and web scraping then each need a rule. |
+| `networkPolicy.extraEgress` | `[]` | Additional egress rules, used with `restrictEgress`. |
 | `persistence.enabled` | `true` | Persist the data volume; an emptyDir (data lost on restart) when false. |
 | `persistence.existingClaim` | `""` | Use an existing PersistentVolumeClaim. See [Adopting an existing volume](#adopting-an-existing-volume). |
 | `persistence.size` | `10Gi` | Size of the PersistentVolumeClaim. |
@@ -225,6 +280,6 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `tolerations` | `[]` | Tolerations for pod scheduling. |
 | `affinity` | `{}` | Affinity rules for pod scheduling. |
 | `priorityClassName` | `""` | PriorityClass for the pod. |
-| `test.image.*` | see `values.yaml` | Image used by the `helm test` hook. |
+| `test.image.*` | see `values.yaml` | Image used by the `helm test` hook, pinned by digest. |
 
 See `values.yaml` for the full set of comments; every value there carries one.

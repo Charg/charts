@@ -1,0 +1,202 @@
+---
+suite: test networkpolicy
+templates:
+  - networkpolicy.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: admits any source to the container's own ports only, and leaves egress alone
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: technitium-dns-server
+            app.kubernetes.io/instance: RELEASE-NAME
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+      - equal:
+          path: spec.ingress
+          value:
+            - ports:
+                - port: dns-udp
+                  protocol: UDP
+                - port: dns-tcp
+                  protocol: TCP
+                - port: web
+                  protocol: TCP
+                - port: web-https
+                  protocol: TCP
+      - notExists:
+          path: spec.egress
+
+  - it: leaves the HTTPS console port out while HTTPS is off
+    set:
+      networkPolicy:
+        enabled: true
+      webService:
+        enableHttps: false
+    asserts:
+      - notContains:
+          path: spec.ingress[0].ports
+          content:
+            port: web-https
+            protocol: TCP
+
+  - it: admits every enabled optional listener port
+    set:
+      networkPolicy:
+        enabled: true
+      optionalListeners:
+        dnsOverTls:
+          enabled: true
+        dnsOverQuic:
+          enabled: true
+        dnsOverHttps:
+          enabled: true
+        dnsOverHttp3:
+          enabled: true
+        dnsOverHttpPort80:
+          enabled: true
+        dnsOverHttpPort8053:
+          enabled: true
+        dhcp:
+          enabled: true
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: dns-udp
+              protocol: UDP
+            - port: dns-tcp
+              protocol: TCP
+            - port: web
+              protocol: TCP
+            - port: web-https
+              protocol: TCP
+            - port: dns-tls
+              protocol: TCP
+            - port: dns-quic
+              protocol: UDP
+            - port: dns-https
+              protocol: TCP
+            - port: dns-http3
+              protocol: UDP
+            - port: dns-http-80
+              protocol: TCP
+            - port: dns-http-8053
+              protocol: TCP
+            - port: dhcp
+              protocol: UDP
+
+  - it: restricts sources to ingressFrom plus the chart's own test pods, and admits replica peers
+    set:
+      networkPolicy:
+        enabled: true
+        ingressFrom:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: ingress-nginx
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/component: test
+      - equal:
+          path: spec.ingress[1]
+          value:
+            ports:
+              - port: dns-udp
+                protocol: UDP
+              - port: dns-tcp
+                protocol: TCP
+              - port: web-https
+                protocol: TCP
+            from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: technitium-dns-server
+                    app.kubernetes.io/instance: RELEASE-NAME
+
+  - it: restricts egress to DNS, the replicas' HTTPS console port and extraEgress when asked
+    set:
+      networkPolicy:
+        enabled: true
+        restrictEgress: true
+        extraEgress:
+          - ports:
+              - port: 443
+                protocol: TCP
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+      - equal:
+          path: spec.egress
+          value:
+            - ports:
+                - port: 53
+                  protocol: UDP
+                - port: 53
+                  protocol: TCP
+            - ports:
+                - port: web-https
+                  protocol: TCP
+              to:
+                - podSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: technitium-dns-server
+                      app.kubernetes.io/instance: RELEASE-NAME
+            - ports:
+                - port: 443
+                  protocol: TCP
+
+  - it: drops the replica HTTPS egress rule while HTTPS is off
+    set:
+      networkPolicy:
+        enabled: true
+        restrictEgress: true
+      webService:
+        enableHttps: false
+    asserts:
+      - equal:
+          path: spec.egress
+          value:
+            - ports:
+                - port: 53
+                  protocol: UDP
+                - port: 53
+                  protocol: TCP
+
+  - it: appends extraIngress rules
+    set:
+      networkPolicy:
+        enabled: true
+        extraIngress:
+          - from:
+              - podSelector:
+                  matchLabels:
+                    app: prometheus
+            ports:
+              - port: 9090
+    asserts:
+      - equal:
+          path: spec.ingress[1].ports[0].port
+          value: 9090

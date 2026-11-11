@@ -1,5 +1,7 @@
 ---
-# Defaults plus the one required value: a single user, which the helm test logs in as.
+# Defaults plus the one required value: a single user, which the helm test logs in as. Runs as
+# uid 65532 with a read-only root filesystem and no capabilities (the restricted Pod Security
+# Standard).
 users:
   - name: ci
     password: ci-password

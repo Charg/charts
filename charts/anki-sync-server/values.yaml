@@ -14,11 +14,13 @@ image:
   repository: ghcr.io/charg/containers/anki-sync-server
   # -- Image pull policy.
   pullPolicy: IfNotPresent
-  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  # -- Image tag. Defaults to .Chart.AppVersion when empty. Setting a tag opts out of the chart's
+  # pinned digest.
   tag: ""
-  # -- Image digest, e.g. "sha256:...". When set, the image is pulled by digest and tag is only
-  # informational. The tag is rebuilt in place when its base image picks up security fixes, so
-  # pin a digest for byte-for-byte reproducible deploys.
+  # -- Image digest, e.g. "sha256:...". Empty with tag also empty pulls the appVersion image by
+  # the digest the chart was released with (the charg.github.io/image-digest annotation in
+  # Chart.yaml); set one here to pin a different image. The tag is informational once a digest
+  # is in play: the runtime pulls by digest.
   digest: ""
 
 # -- References to Secrets holding credentials for a private image registry.
@@ -150,6 +152,23 @@ httpRoute:
         type: PathPrefix
         value: /
 
+networkPolicy:
+  # -- Create a NetworkPolicy for the pod. Only takes effect on a CNI that enforces NetworkPolicy.
+  enabled: false
+  # -- Peers allowed to reach the HTTP port, as NetworkPolicy `from` entries, e.g. the ingress
+  # controller's namespace: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name:
+  # ingress-nginx}}}]. Empty admits any source, but still only to the HTTP port. The chart's own
+  # helm test pod is always admitted.
+  ingressFrom: []
+  # -- Additional ingress rules, as NetworkPolicy `ingress` entries.
+  extraIngress: []
+  # -- Restrict egress to DNS (port 53, any destination) plus extraEgress. The sync server makes
+  # no outbound connections of its own (no SMTP, telemetry or update checks), so this is safe to
+  # turn on as-is.
+  restrictEgress: false
+  # -- Additional egress rules, as NetworkPolicy `egress` entries. Only used with restrictEgress.
+  extraEgress: []
+
 persistence:
   # -- Persist /anki_data (every user's collection and media). Disabling it uses an emptyDir:
   # every pod restart then loses all synced data, so only do that for throwaway testing.
@@ -229,7 +248,7 @@ test:
     # -- Image used by the helm test hook, which checks /health and logs in as the first user
     # through the Service.
     repository: curlimages/curl
-    # -- Tag of the test image.
-    tag: "8.23.0"
+    # -- Tag of the test image, pinned to a digest.
+    tag: "8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
     # -- Pull policy of the test image.
     pullPolicy: IfNotPresent

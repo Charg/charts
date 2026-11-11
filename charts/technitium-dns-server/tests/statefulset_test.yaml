@@ -28,13 +28,13 @@ tests:
           path: spec.serviceName
           value: RELEASE-NAME-technitium-dns-server-headless
 
-  - it: defaults the image tag to the chart appVersion
+  - it: defaults the image tag to the chart appVersion, pinned by the chart's digest
     chart:
       appVersion: 0.0.0-test
     asserts:
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: docker.io/technitium/dns-server:0.0.0-test
+          pattern: ^docker\.io/technitium/dns-server:0\.0\.0-test@sha256:[a-f0-9]{64}$
 
   - it: overrides the image tag from values
     set:
@@ -43,6 +43,66 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].image
           value: docker.io/technitium/dns-server:15.3.0
+
+  - it: pulls an explicit digest, ahead of the chart's pinned one
+    chart:
+      appVersion: 0.0.0-test
+    set:
+      image:
+        digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^docker\.io/technitium/dns-server:0\.0\.0-test@sha256:0{64}$
+
+  - it: rejects a digest that is not a sha256 digest
+    set:
+      image:
+        digest: latest
+    asserts:
+      - failedTemplate: {}
+
+  - it: meets the baseline Pod Security Standard by default, keeping only NET_BIND_SERVICE
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+
+  # {} would not do: Helm merges a map value into the default rather than replacing it.
+  - it: restores the runtime's default capabilities when the security contexts are nulled
+    set:
+      podSecurityContext: null
+      securityContext: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext
+
+  - it: rejects a misspelt security context field instead of dropping it
+    set:
+      securityContext:
+        allowPrivilegeEscalaton: false
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown top-level value
+    set:
+      securityContex:
+        allowPrivilegeEscalation: false
+    asserts:
+      - failedTemplate: {}
 
   - it: mounts the data volume at /etc/dns
     asserts:

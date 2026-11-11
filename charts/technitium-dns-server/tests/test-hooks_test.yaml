@@ -65,3 +65,57 @@ tests:
       - matchRegex:
           path: spec.containers[0].command[2]
           pattern: 'nslookup "example\.net"'
+
+  - it: runs the status hook under the restricted Pod Security Standard, its image pinned by digest
+    templates:
+      - templates/tests/test-connection.yaml
+    asserts:
+      - equal:
+          path: spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      - matchRegex:
+          path: spec.containers[0].image
+          pattern: ^curlimages/curl:[^@]+@sha256:[a-f0-9]{64}$
+
+  - it: runs the recursion hook under the restricted Pod Security Standard, its image pinned by digest
+    templates:
+      - templates/tests/test-recursion.yaml
+    set:
+      test.recursion.enabled: true
+    asserts:
+      - equal:
+          path: spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      - contains:
+          path: spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+      - matchRegex:
+          path: spec.containers[0].image
+          pattern: ^busybox:[^@]+@sha256:[a-f0-9]{64}$

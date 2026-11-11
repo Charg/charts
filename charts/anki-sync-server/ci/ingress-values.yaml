@@ -2,7 +2,9 @@
 # Exercises Ingress rendering and admission, several users (including a password with JSON
 # metacharacters, which the helm test has to escape) and the structured environment. kind has
 # no ingress controller installed, so this proves the resource is accepted by the API server,
-# not that traffic flows through it.
+# not that traffic flows through it. Also enables a NetworkPolicy that admits only an ingress
+# controller's namespace and allows only DNS egress, proving it still admits the chart's own
+# test pod.
 users:
   - name: alice
     password: 'p"ass\word:with:colons'
@@ -18,3 +20,10 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  restrictEgress: true

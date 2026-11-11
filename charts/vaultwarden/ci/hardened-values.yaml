@@ -1,8 +1,9 @@
 ---
-# The locked-down profile README.md recommends: non-root, read-only root filesystem, no
-# capabilities, served under a sub-path. Proves three things at once: the default containerPort
-# (8080) binds without privileges, the projected credential files (0440 + fsGroup) are readable
-# by a non-root user, and the probes and helm test follow domain's sub-path.
+# The locked-down defaults plus everything else README.md recommends for an exposed install:
+# admin token as an Argon2 hash, sign-ups closed, served under a sub-path, and a NetworkPolicy
+# that admits only an ingress controller's namespace and allows only DNS egress. Proves the
+# projected credential files (0440 + fsGroup) are readable by the non-root user, that the probes
+# and helm test follow domain's sub-path, and that the policy still admits the chart's own test pod.
 domain: https://vaultwarden.ci.local/vw
 admin:
   # Argon2id PHC string for "ci-admin-token".
@@ -13,22 +14,10 @@ invitations:
   allowed: true
 env:
   DISABLE_ICON_DOWNLOAD: "true"
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 1000
-  runAsGroup: 1000
-  fsGroup: 1000
-  seccompProfile:
-    type: RuntimeDefault
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  capabilities:
-    drop:
-      - ALL
-extraVolumes:
-  - name: tmp
-    emptyDir: {}
-extraVolumeMounts:
-  - name: tmp
-    mountPath: /tmp
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  restrictEgress: true

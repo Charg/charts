@@ -3,7 +3,7 @@ apiVersion: v2
 name: technitium-dns-server
 description: Self-hosted authoritative and recursive DNS server with a web console, DNSSEC, and ad/malware blocking.
 type: application
-version: 0.4.6
+version: 0.5.0
 appVersion: "15.6.2"
 keywords:
   - dns
@@ -18,3 +18,12 @@ maintainers:
   - name: chris
     email: chris@syn.sh
 icon: https://technitium.com/img/logo.png
+annotations:
+  # The Pod Security Standard every pod this chart renders meets at its default values. CI
+  # installs each scenario into a namespace that enforces it. Not "restricted": the image runs as
+  # root by design, keeping only NET_BIND_SERVICE so it can bind port 53.
+  charg.github.io/pod-security: baseline
+  # Digest of the appVersion image (the multi-arch index). Used whenever image.tag and
+  # image.digest are both left empty, so a re-pushed upstream tag cannot change what a published
+  # chart version deploys. Renovate updates it together with appVersion.
+  charg.github.io/image-digest: sha256:eb48ac5c135f4ab936b536f74f853d53e15ab39ef37fdbc9598a089b90d9f245

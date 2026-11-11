@@ -10,10 +10,27 @@ metadata:
     "helm.sh/hook-weight": "1"
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    # busybox has no user of its own; nobody is enough for nslookup.
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: resolve
       image: "{{ .Values.test.dnsImage.repository }}:{{ .Values.test.dnsImage.tag }}"
       imagePullPolicy: {{ .Values.test.dnsImage.pullPolicy }}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
+      volumeMounts:
+        # The script writes the answer to /tmp, which the read-only root filesystem would refuse.
+        - name: tmp
+          mountPath: /tmp
       command:
         - sh
         - -c
@@ -27,4 +44,7 @@ spec:
           # busybox nslookup exits 0 on NXDOMAIN, so assert an address was actually returned
           # rather than relying on the exit status.
           grep -A99 'Name:' /tmp/answer | grep -Eq '^Address: +[0-9a-fA-F:.]+'
+  volumes:
+    - name: tmp
+      emptyDir: {}
 {{- end }}

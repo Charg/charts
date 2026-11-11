@@ -1,6 +1,9 @@
 ---
 # Exercises Ingress rendering and admission. kind has no ingress controller installed, so
 # this proves the resource is accepted by the API server, not that traffic flows through it.
+# Also enables a NetworkPolicy that admits only an ingress controller's namespace and allows
+# only DNS egress (the helm test here does no recursion), proving the policy still admits the
+# chart's own test pod.
 perReplicaService:
   type: ClusterIP
 auth:
@@ -12,3 +15,10 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  restrictEgress: true

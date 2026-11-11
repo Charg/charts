@@ -17,9 +17,9 @@ tests:
       - equal:
           path: spec.strategy.type
           value: Recreate
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: docker.io/vaultwarden/server:0.0.0-test
+          pattern: ^docker\.io/vaultwarden/server:0\.0\.0-test@sha256:[a-f0-9]{64}$
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
@@ -35,6 +35,87 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].image
           value: docker.io/vaultwarden/server:1.37.4-alpine
+
+  - it: pulls an explicit digest, ahead of the chart's pinned one
+    template: deployment.yaml
+    chart:
+      appVersion: 0.0.0-test
+    set:
+      image:
+        digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^docker\.io/vaultwarden/server:0\.0\.0-test@sha256:0{64}$
+
+  - it: rejects a digest that is not a sha256 digest
+    template: deployment.yaml
+    set:
+      image:
+        digest: latest
+    asserts:
+      - failedTemplate: {}
+
+  - it: meets the restricted Pod Security Standard by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+            emptyDir: {}
+
+  - it: rejects a misspelt security context field instead of dropping it
+    template: deployment.yaml
+    set:
+      securityContext:
+        readOnlyRootFileSystem: true
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown top-level value
+    template: deployment.yaml
+    set:
+      securityContex:
+        runAsNonRoot: true
+    asserts:
+      - failedTemplate: {}
+
+  - it: refuses a second mount at /tmp
+    template: deployment.yaml
+    set:
+      extraVolumes:
+        - name: scratch
+          emptyDir: {}
+      extraVolumeMounts:
+        - name: scratch
+          mountPath: /tmp/
+    asserts:
+      - failedTemplate:
+          errorPattern: the chart already mounts an emptyDir at /tmp
 
   - it: renders only ROCKET_PORT when nothing else is configured
     template: deployment.yaml
@@ -213,6 +294,8 @@ tests:
           value:
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
 
   - it: projects inline and existing Secrets into one credentials volume
     template: deployment.yaml
@@ -364,11 +447,11 @@ tests:
         nodeAffinity: {}
       priorityClassName: high
       extraVolumes:
-        - name: tmp
+        - name: cache
           emptyDir: {}
       extraVolumeMounts:
-        - name: tmp
-          mountPath: /tmp
+        - name: cache
+          mountPath: /cache
     asserts:
       - equal:
           path: spec.template.spec.securityContext.fsGroup
@@ -390,13 +473,13 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: tmp
+            name: cache
             emptyDir: {}
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: tmp
-            mountPath: /tmp
+            name: cache
+            mountPath: /cache
 
   - it: fails when a credential has both an inline value and an existing Secret
     template: deployment.yaml

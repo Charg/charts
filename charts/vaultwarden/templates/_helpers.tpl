@@ -83,6 +83,26 @@ Name of the PersistentVolumeClaim mounted at /data.
 {{- end }}
 
 {{/*
+The container image reference. An explicit image.digest wins. With image.tag and image.digest
+both empty, the appVersion image is pulled by the digest the chart was released with (the
+charg.github.io/image-digest annotation), so a re-pushed upstream tag cannot change what this
+chart version deploys. An explicit image.tag alone pulls that tag as-is: the annotation's digest
+belongs to appVersion and would silently override any other tag.
+*/}}
+{{- define "vaultwarden.image" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- $digest := .Values.image.digest -}}
+{{- if and (not $digest) (not .Values.image.tag) -}}
+{{- $digest = index (.Chart.Annotations | default dict) "charg.github.io/image-digest" | default "" -}}
+{{- end -}}
+{{- if $digest -}}
+{{- printf "%s:%s@%s" .Values.image.repository $tag $digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 URL path prefix every Vaultwarden route lives under: the path component of domain, without a
 trailing slash, or empty when domain has none. Mirrors upstream's own docker/healthcheck.sh,
 which derives the /alive URL from DOMAIN the same way.
@@ -291,6 +311,11 @@ Template-time validation. Rendered (to nothing) by the Deployment so every failu
 {{- end }}
 {{- if and .Values.smtp.security (not (has .Values.smtp.security (list "starttls" "force_tls" "off"))) }}
 {{- fail (printf "smtp.security must be one of starttls, force_tls, off, got %q" .Values.smtp.security) }}
+{{- end }}
+{{- range .Values.extraVolumeMounts }}
+{{- if eq (trimSuffix "/" .mountPath) "/tmp" }}
+{{- fail "extraVolumeMounts: the chart already mounts an emptyDir at /tmp; remove this mount (and its extraVolumes entry)" }}
+{{- end }}
 {{- end }}
 {{- if and .Values.smtp.host (not .Values.smtp.from) }}
 {{- fail "smtp.from is required when smtp.host is set" }}

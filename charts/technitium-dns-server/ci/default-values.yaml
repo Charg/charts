@@ -1,5 +1,6 @@
 ---
-# Single replica, everything at its defaults except what kind cannot provide.
+# Single replica, everything at its defaults except what kind cannot provide: root, but with
+# only NET_BIND_SERVICE and RuntimeDefault seccomp (the baseline Pod Security Standard).
 # kind has no LoadBalancer controller, so a LoadBalancer Service never gets an address
 # and ct install would block until it timed out.
 perReplicaService:

@@ -54,3 +54,23 @@ tests:
       - notMatchRegex:
           path: spec.containers[0].command[2]
           pattern: '/sync/hostKey'
+
+  - it: meets the restricted Pod Security Standard and pins its image by digest
+    asserts:
+      - equal:
+          path: spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      - matchRegex:
+          path: spec.containers[0].image
+          pattern: ^curlimages/curl:[^@]+@sha256:[a-f0-9]{64}$

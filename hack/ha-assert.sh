@@ -8,7 +8,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
-require_tools helm kubectl
+require_tools helm kubectl yq
 
 CHART="${CHART_DIR}/technitium-dns-server"
 VALUES="${CHART}/ci/ha-values.yaml"
@@ -30,6 +30,10 @@ cleanup() {
 trap cleanup EXIT
 
 kubectl --context "${CONTEXT}" create namespace "${NAMESPACE}" >/dev/null
+# Same Pod Security enforcement as the main e2e install of this chart.
+kubectl --context "${CONTEXT}" label namespace "${NAMESPACE}" \
+  "pod-security.kubernetes.io/enforce=$(chart_pod_security "${CHART}")" \
+  pod-security.kubernetes.io/enforce-version=latest >/dev/null
 
 echo "--> installing ${EXPECTED_REPLICAS} replicas into ${NAMESPACE}"
 helm install "${RELEASE}" "${CHART}" \

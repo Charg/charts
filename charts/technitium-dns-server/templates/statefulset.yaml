@@ -57,13 +57,14 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "technitium-dns-server.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             {{- include "technitium-dns-server.env" . | nindent 12 }}
             {{- with .Values.extraEnvVars }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          # technitium-dns-server.networkPolicyPorts mirrors this list; keep the two in step.
           ports:
             - name: dns-udp
               containerPort: {{ .Values.service.dnsPort }}
@@ -166,7 +167,8 @@ spec:
           secret:
             secretName: {{ include "technitium-dns-server.adminPasswordSecretName" . }}
             # Technitium reads this file at container start; mode 0400 keeps it unreadable by
-            # anyone but the (root, per the image's design) process that opens it.
+            # anyone but the (root, per the image's design) process that opens it. Root owns the
+            # file, so reading it needs no DAC_OVERRIDE, which the default securityContext drops.
             defaultMode: 0400
             items:
               - key: {{ include "technitium-dns-server.adminPasswordSecretKey" . }}

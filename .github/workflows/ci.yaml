@@ -11,20 +11,31 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
+# Nothing by default; each job asks for exactly what it uses.
+permissions: {}
 
 jobs:
   lint-unit:
     name: lint and unit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          # Audit first: records every outbound connection so a block-mode allowlist can be
+          # built from real runs before it is enforced.
+          egress-policy: audit
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # ct lint diffs changed charts against the target branch; a shallow
           # checkout has no history for it to diff against.
           fetch-depth: 0
+          # Nothing pushes back to git, so the token does not need to outlive this step.
+          persist-credentials: false
 
       - name: Install nix
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
@@ -35,16 +46,51 @@ jobs:
       - name: Run unit tests
         run: nix develop -c just unit
 
+  images:
+    name: images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # ct list-changed diffs against the target branch, same as ct lint.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Verify image pins and signatures
+        run: nix develop -c just verify-images
+
+      - name: Scan changed charts' images for fixable critical CVEs
+        run: nix develop -c just scan-images --changed
+
   integration:
     name: integration
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # ct install diffs changed charts against the target branch; a shallow
           # checkout has no history for it to diff against.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install nix
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23

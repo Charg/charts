@@ -42,3 +42,9 @@ release-plan:
 # Package, push, sign and verify one chart (CHART is charts/<name>).
 release-publish chart:
     hack/release-publish.sh {{ chart }}
+
+verify-images *charts:
+    hack/verify-images.sh {{ charts }}
+
+scan-images *charts:
+    hack/scan-images.sh {{ charts }}

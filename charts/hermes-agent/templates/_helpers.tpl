@@ -83,6 +83,26 @@ Name of the PersistentVolumeClaim holding the data volume.
 {{- end }}
 
 {{/*
+The container image reference. An explicit image.digest wins. With image.tag and image.digest
+both empty, the appVersion image is pulled by the digest the chart was released with (the
+charg.github.io/image-digest annotation), so a re-pushed upstream tag cannot change what this
+chart version deploys. An explicit image.tag alone pulls that tag as-is: the annotation's digest
+belongs to appVersion and would silently override any other tag.
+*/}}
+{{- define "hermes-agent.image" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- $digest := .Values.image.digest -}}
+{{- if and (not $digest) (not .Values.image.tag) -}}
+{{- $digest = index (.Chart.Annotations | default dict) "charg.github.io/image-digest" | default "" -}}
+{{- end -}}
+{{- if $digest -}}
+{{- printf "%s:%s@%s" .Values.image.repository $tag $digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 The image's HERMES_HOME. Not configurable: the image's init seeds, chowns and migrates exactly
 this path before the gateway starts.
 */}}

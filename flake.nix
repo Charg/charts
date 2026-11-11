@@ -38,6 +38,13 @@
               pkgs.yamale
               pkgs.cosign
               pkgs.just
+              # Security checks: misconfiguration and CVE scanning of rendered manifests and the
+              # images they deploy, and workflow linting.
+              pkgs.trivy
+              pkgs.zizmor
+              pkgs.actionlint
+              # Structured queries over rendered manifests (image lists, Chart.yaml annotations).
+              pkgs.yq-go
               # Used by the scripts directly: registry probing, JSON assembly, the
               # nested-container e2e path, and source-tree copies.
               pkgs.git

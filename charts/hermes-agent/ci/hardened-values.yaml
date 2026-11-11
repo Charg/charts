@@ -1,8 +1,8 @@
 ---
-# The minimal-privilege profile README.md recommends: every capability dropped except the six the
-# image's root-then-drop start needs, no privilege escalation, RuntimeDefault seccomp. Also runs
-# the dashboard behind basic auth, a managed config and a Secret-backed managedEnv entry, so the
-# managed .env carries quoting-sensitive values end to end.
+# The default minimal-privilege profile plus a NetworkPolicy that admits only an ingress
+# controller's namespace and allows only DNS egress, proving the policy still admits the chart's
+# own test pod on both ports. Also runs the dashboard behind basic auth, a managed config and a
+# Secret-backed managedEnv entry, so the managed .env carries quoting-sensitive values end to end.
 apiServer:
   key: ci-api-server-key-0123456789
   modelName: ci-hermes
@@ -28,18 +28,12 @@ managedEnv:
         name: ci-hermes-agent-missing
         key: value
         optional: true
-podSecurityContext:
-  seccompProfile:
-    type: RuntimeDefault
-securityContext:
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-    add:
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - SETUID
-      - SETGID
-      - KILL
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  # The model endpoint is a closed local port and nothing else is reached out to, so DNS-only
+  # egress is enough for the gateway to boot and the helm test to pass.
+  restrictEgress: true

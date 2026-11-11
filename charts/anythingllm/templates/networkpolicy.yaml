@@ -1,0 +1,44 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "anythingllm.fullname" . }}
+  labels:
+    {{- include "anythingllm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "anythingllm.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    {{- if .Values.networkPolicy.restrictEgress }}
+    - Egress
+    {{- end }}
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      {{- with .Values.networkPolicy.ingressFrom }}
+      from:
+        {{- toYaml . | nindent 8 }}
+        # The chart's own helm test pod, so `helm test` keeps working with a restricted source list.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: {{ $.Release.Name }}
+              app.kubernetes.io/component: test
+      {{- end }}
+    {{- with .Values.networkPolicy.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- if .Values.networkPolicy.restrictEgress }}
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- with .Values.networkPolicy.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}

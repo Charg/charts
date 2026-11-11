@@ -46,3 +46,53 @@ require_tools() {
     return 1
   fi
 }
+
+# The ci/*-values.yaml scenarios of a chart, one per line, sorted. Falls back to values.yaml for
+# a chart with no scenarios. A chart may require a value (anki-sync-server needs a user) and
+# deliberately fail to render without it, which is why the bare defaults are not always usable.
+chart_value_files() {
+  local chart="$1" found
+  found="$(find "${chart}/ci" -maxdepth 1 -name '*-values.yaml' 2>/dev/null | sort)"
+  if [ -n "${found}" ]; then
+    printf '%s\n' "${found}"
+  else
+    printf '%s\n' "${chart}/values.yaml"
+  fi
+}
+
+# A top-level Chart.yaml annotation ($2) of a chart ($1), or nothing when it is absent.
+chart_annotation() {
+  helm show chart "$1" | yq ".annotations[\"$2\"] // \"\""
+}
+
+# The Pod Security Standard a chart declares its defaults meet (charg.github.io/pod-security).
+# Fails when it is missing or not a known level, so a new chart cannot skip declaring one.
+chart_pod_security() {
+  local level
+  level="$(chart_annotation "$1" charg.github.io/pod-security)"
+  case "${level}" in
+    restricted | baseline | privileged) echo "${level}" ;;
+    *)
+      echo "$1: Chart.yaml must set annotations.charg.github.io/pod-security to restricted," \
+        "baseline or privileged (got '${level}')" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Every image a chart deploys across its ci/ scenarios, helm test hooks included, one per line,
+# sorted and de-duplicated. Rendering every scenario rather than the bare defaults catches images
+# that only appear behind a feature flag the scenarios turn on.
+chart_images() {
+  local chart="$1" values
+  while IFS= read -r values; do
+    helm template images-release "${chart}" --values "${values}"
+    echo "---"
+  done < <(chart_value_files "${chart}") |
+    yq eval-all --no-doc \
+      '.. | select(tag == "!!map") | select(has("image")) | .image | select(tag == "!!str")' - |
+    sort -u
+}
+
+# in-toto predicate type of the attestation listing the images a published chart deploys.
+IMAGES_PREDICATE_TYPE="https://charg.github.io/attestations/chart-images/v1"

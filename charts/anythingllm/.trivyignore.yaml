@@ -1,0 +1,8 @@
+---
+# HIGH/CRITICAL trivy findings this chart accepts, read by hack/lint.sh (misconfigurations) and
+# hack/scan-images.sh (vulnerabilities). Every entry states why it cannot be fixed in the chart.
+misconfigurations:
+  - id: KSV-0014
+    statement: >-
+      Root filesystem cannot be read-only: the image's entrypoint runs prisma generate into
+      its own node_modules on every start, and the init container uses the same securityContext.

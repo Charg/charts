@@ -1,0 +1,370 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "hermes-agent values",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "global": {
+      "type": "object",
+      "description": "Values shared with a parent chart."
+    },
+    "image": {
+      "$ref": "#/definitions/image"
+    },
+    "imagePullSecrets": {
+      "type": "array"
+    },
+    "nameOverride": {},
+    "fullnameOverride": {},
+    "serviceAccount": {
+      "type": "object"
+    },
+    "podAnnotations": {
+      "type": "object"
+    },
+    "podLabels": {
+      "type": "object"
+    },
+    "podSecurityContext": {
+      "$ref": "#/definitions/podSecurityContext"
+    },
+    "securityContext": {
+      "$ref": "#/definitions/securityContext"
+    },
+    "config": {
+      "type": "object"
+    },
+    "apiServer": {
+      "type": "object"
+    },
+    "dashboard": {
+      "type": "object"
+    },
+    "managedEnv": {
+      "type": "array"
+    },
+    "env": {
+      "type": "object"
+    },
+    "extraEnvVars": {
+      "type": "array"
+    },
+    "extraEnvFrom": {
+      "type": "array"
+    },
+    "service": {
+      "type": "object"
+    },
+    "ingress": {
+      "type": "object"
+    },
+    "httpRoute": {
+      "type": "object"
+    },
+    "networkPolicy": {
+      "$ref": "#/definitions/networkPolicy"
+    },
+    "persistence": {
+      "type": "object"
+    },
+    "shm": {
+      "type": "object"
+    },
+    "extraVolumes": {
+      "type": "array"
+    },
+    "extraVolumeMounts": {
+      "type": "array"
+    },
+    "strategy": {
+      "type": "object"
+    },
+    "terminationGracePeriodSeconds": {
+      "type": "integer"
+    },
+    "startupProbe": {
+      "type": "object"
+    },
+    "readinessProbe": {
+      "type": "object"
+    },
+    "livenessProbe": {
+      "type": "object"
+    },
+    "resources": {
+      "type": "object"
+    },
+    "nodeSelector": {
+      "type": "object"
+    },
+    "tolerations": {
+      "type": "array"
+    },
+    "affinity": {
+      "type": "object"
+    },
+    "priorityClassName": {},
+    "test": {
+      "type": "object"
+    }
+  },
+  "definitions": {
+    "securityContext": {
+      "description": "A core/v1 SecurityContext. Closed, so a misspelt field fails instead of being dropped.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowPrivilegeEscalation": {
+          "type": "boolean"
+        },
+        "appArmorProfile": {
+          "$ref": "#/definitions/appArmorProfile"
+        },
+        "capabilities": {
+          "$ref": "#/definitions/capabilities"
+        },
+        "privileged": {
+          "type": "boolean"
+        },
+        "procMount": {
+          "enum": [
+            "Default",
+            "Unmasked"
+          ]
+        },
+        "readOnlyRootFilesystem": {
+          "type": "boolean"
+        },
+        "runAsGroup": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runAsNonRoot": {
+          "type": "boolean"
+        },
+        "runAsUser": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seLinuxOptions": {
+          "$ref": "#/definitions/seLinuxOptions"
+        },
+        "seccompProfile": {
+          "$ref": "#/definitions/seccompProfile"
+        },
+        "windowsOptions": {
+          "type": "object"
+        }
+      }
+    },
+    "podSecurityContext": {
+      "description": "A core/v1 PodSecurityContext. Closed, so a misspelt field fails instead of being dropped.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "appArmorProfile": {
+          "$ref": "#/definitions/appArmorProfile"
+        },
+        "fsGroup": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fsGroupChangePolicy": {
+          "enum": [
+            "OnRootMismatch",
+            "Always"
+          ]
+        },
+        "runAsGroup": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "runAsNonRoot": {
+          "type": "boolean"
+        },
+        "runAsUser": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seLinuxChangePolicy": {
+          "enum": [
+            "MountOption",
+            "Recursive"
+          ]
+        },
+        "seLinuxOptions": {
+          "$ref": "#/definitions/seLinuxOptions"
+        },
+        "seccompProfile": {
+          "$ref": "#/definitions/seccompProfile"
+        },
+        "supplementalGroups": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "supplementalGroupsPolicy": {
+          "enum": [
+            "Merge",
+            "Strict"
+          ]
+        },
+        "sysctls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "windowsOptions": {
+          "type": "object"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "add": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "drop": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "seccompProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "RuntimeDefault",
+            "Localhost",
+            "Unconfined"
+          ]
+        },
+        "localhostProfile": {
+          "type": "string"
+        }
+      }
+    },
+    "appArmorProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "RuntimeDefault",
+            "Localhost",
+            "Unconfined"
+          ]
+        },
+        "localhostProfile": {
+          "type": "string"
+        }
+      }
+    },
+    "seLinuxOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "user": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[a-f0-9]{64})?$"
+        },
+        "pullPolicy": {
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "ingressFrom": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "extraIngress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "restrictEgress": {
+          "type": "boolean"
+        },
+        "extraEgress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

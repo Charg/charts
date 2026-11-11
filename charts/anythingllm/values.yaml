@@ -18,8 +18,14 @@ image:
   repository: docker.io/mintplexlabs/anythingllm
   # -- Image pull policy.
   pullPolicy: IfNotPresent
-  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  # -- Image tag. Defaults to .Chart.AppVersion when empty. Setting a tag opts out of the chart's
+  # pinned digest.
   tag: ""
+  # -- Image digest, e.g. "sha256:...". Empty with tag also empty pulls the appVersion image by
+  # the digest the chart was released with (the charg.github.io/image-digest annotation in
+  # Chart.yaml); set one here to pin a different image. The tag is informational once a digest
+  # is in play: the runtime pulls by digest.
+  digest: ""
 
 # -- References to Secrets holding credentials for a private image registry.
 imagePullSecrets: []
@@ -49,20 +55,36 @@ podLabels: {}
 
 # -- Pod-level securityContext. The image runs as its own unprivileged user (1000:1000); fsGroup
 # makes the data volume writable by that user. OnRootMismatch skips the recursive chown on every
-# start once ownership is right, which matters as the document and vector store grows.
+# start once ownership is right, which matters as the document and vector store grows. Meets the
+# "restricted" Pod Security Standard.
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
   runAsGroup: 1000
   fsGroup: 1000
   fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
 
-# -- Container-level securityContext. A read-only root filesystem is not supported: the entrypoint
-# runs `prisma generate` into the image's node_modules on every start. The bundled Chromium (used
-# to scrape web pages into documents) needs its sandbox, which upstream grants with the SYS_ADMIN
-# capability; to drop all capabilities instead, pass the sandbox-disabling flags through env, see
-# ANYTHINGLLM_CHROMIUM_ARGS in README.md.
-securityContext: {}
+# -- Container-level securityContext, applied to the init container too. A read-only root
+# filesystem is not supported: the entrypoint runs `prisma generate` into the image's
+# node_modules on every start. With every capability dropped, the bundled Chromium cannot use its
+# sandbox; see chromium.sandbox.
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+chromium:
+  # -- Run the bundled Chromium (used to scrape web pages into documents) inside its own sandbox.
+  # False (the default) makes the chart set ANYTHINGLLM_CHROMIUM_ARGS to
+  # "--no-sandbox,--disable-setuid-sandbox", which the default securityContext needs: the sandbox
+  # requires the SYS_ADMIN capability. Setting true also means adding SYS_ADMIN to
+  # securityContext.capabilities.add, which takes the pod out of both the "baseline" and
+  # "restricted" Pod Security Standards. An env.ANYTHINGLLM_CHROMIUM_ARGS (or extraEnvVars entry)
+  # replaces the chart's flags; keep --no-sandbox in it while this is false.
+  sandbox: false
 
 # -- Port the server listens on inside the container, sent as SERVER_PORT.
 containerPort: 3001
@@ -127,8 +149,9 @@ encryption:
 # provider, embedder and vector database, e.g. {LLM_PROVIDER: litellm, LITE_LLM_BASE_PATH:
 # "http://litellm:4000", EMBEDDING_ENGINE: native, VECTOR_DB: lancedb}. See upstream's
 # docker/.env.example for the full list. Rendered after the variables above, in key order. A key
-# the chart already sets (e.g. SERVER_PORT, JWT_SECRET) fails the template. Put API keys in
-# extraEnvVars or extraEnvFrom rather than here.
+# the chart already sets (e.g. SERVER_PORT, JWT_SECRET) fails the template, except
+# ANYTHINGLLM_CHROMIUM_ARGS, which replaces the chart's own (see chromium.sandbox). Put API keys
+# in extraEnvVars or extraEnvFrom rather than here.
 env: {}
 
 # -- Additional environment variables as a list of name/value(From) entries, appended after env
@@ -171,6 +194,25 @@ httpRoute:
     - path:
         type: PathPrefix
         value: /
+
+networkPolicy:
+  # -- Create a NetworkPolicy for the pod. Only takes effect on a CNI that enforces NetworkPolicy.
+  enabled: false
+  # -- Peers allowed to reach the HTTP port, as NetworkPolicy `from` entries, e.g. the ingress
+  # controller's namespace: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name:
+  # ingress-nginx}}}]. Empty admits any source, but still only to the HTTP port. The chart's own
+  # helm test pod is always admitted.
+  ingressFrom: []
+  # -- Additional ingress rules, as NetworkPolicy `ingress` entries.
+  extraIngress: []
+  # -- Restrict egress to DNS (port 53, any destination) plus extraEgress. Off by default:
+  # AnythingLLM reaches out to the LLM provider, the embedder and any external vector database,
+  # downloads the native embedding model from Hugging Face on first use, and fetches arbitrary
+  # web pages when scraping documents or running agent web-browsing tools, all of which then need
+  # an extraEgress rule. Booting needs no egress at all.
+  restrictEgress: false
+  # -- Additional egress rules, as NetworkPolicy `egress` entries. Only used with restrictEgress.
+  extraEgress: []
 
 persistence:
   # -- Persist the data volume: the SQLite database, vector store, uploaded and parsed documents,
@@ -257,7 +299,7 @@ test:
   image:
     # -- Image used by the helm test hook that calls GET /api/ping through the Service.
     repository: curlimages/curl
-    # -- Tag of the test image.
-    tag: "8.23.0"
+    # -- Tag of the test image, pinned to a digest.
+    tag: "8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
     # -- Pull policy of the test image.
     pullPolicy: IfNotPresent

@@ -15,21 +15,29 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  packages: write
-  id-token: write
-  attestations: write
+# Nothing by default; each job asks for exactly what it uses.
+permissions: {}
 
 jobs:
   plan:
     name: plan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Only to ask GHCR whether a version already exists.
+      packages: read
     outputs:
       charts: ${{ steps.plan.outputs.charts }}
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install nix
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
@@ -44,37 +52,21 @@ jobs:
     name: publish
     needs: plan
     if: needs.plan.outputs.charts != '' && needs.plan.outputs.charts != '[]'
-    runs-on: ubuntu-latest
     strategy:
+      # One chart failing must not cancel another half-way through signing.
+      fail-fast: false
       matrix:
         entry: ${{ fromJSON(needs.plan.outputs.charts) }}
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install nix
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-
-      - name: Log in to ghcr.io
-        env:
-          GITHUB_ACTOR: ${{ github.actor }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: nix develop -c hack/registry-login.sh
-
-      - name: Package, push, sign and verify
-        id: publish
-        run: nix develop -c hack/release-publish.sh ${{ matrix.entry.path }}
-
-      - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ${{ steps.publish.outputs.ref }}
-          subject-digest: ${{ steps.publish.outputs.digest }}
-          push-to-registry: true
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
-        with:
-          tag_name: ${{ steps.publish.outputs.chart }}-${{ steps.publish.outputs.version }}
-          name: ${{ steps.publish.outputs.chart }} ${{ steps.publish.outputs.version }}
-          generate_release_notes: true
+    # The ceiling for the reusable workflow; each of its jobs narrows this to what it uses, so the
+    # job holding the OIDC token cannot write to the repository and vice versa.
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    # Signing lives in a reusable workflow so that the certificate identity consumers verify
+    # against names that one file, not whichever workflow happened to run. The "./" form rather
+    # than zizmor's suggested "$/" self-repository syntax, which the pinned actionlint rejects.
+    uses: ./.github/workflows/publish-chart.yaml # zizmor: ignore[self-repository]
+    with:
+      chart-path: ${{ matrix.entry.path }}

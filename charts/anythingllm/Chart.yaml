@@ -3,7 +3,7 @@ apiVersion: v2
 name: anythingllm
 description: All-in-one AI workspace with chat, RAG over your documents and agents, against any LLM provider.
 type: application
-version: 0.1.2
+version: 0.2.0
 appVersion: "1.19.0"
 keywords:
   - anythingllm
@@ -18,3 +18,11 @@ maintainers:
   - name: chris
     email: chris@syn.sh
 icon: https://raw.githubusercontent.com/Mintplex-Labs/anything-llm/master/frontend/public/favicon.png
+annotations:
+  # The Pod Security Standard every pod this chart renders meets at its default values. CI
+  # installs each scenario into a namespace that enforces it.
+  charg.github.io/pod-security: restricted
+  # Digest of the appVersion image (the multi-arch index). Used whenever image.tag and
+  # image.digest are both left empty, so a re-pushed upstream tag cannot change what a published
+  # chart version deploys. Renovate updates it together with appVersion.
+  charg.github.io/image-digest: sha256:daf5a6ae9d363ed578e7d41e2d0668c7eaa604bd90b0ff27435f893b0906833e

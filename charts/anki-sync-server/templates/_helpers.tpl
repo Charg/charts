@@ -83,12 +83,20 @@ Name of the PersistentVolumeClaim mounted at /anki_data.
 {{- end }}
 
 {{/*
-The container image reference: by digest when one is set, by tag otherwise.
+The container image reference. An explicit image.digest wins. With image.tag and image.digest
+both empty, the appVersion image is pulled by the digest the chart was released with (the
+charg.github.io/image-digest annotation), so a tag rebuilt in place cannot change what this
+chart version deploys. An explicit image.tag alone pulls that tag as-is: the annotation's digest
+belongs to appVersion and would silently override any other tag.
 */}}
 {{- define "anki-sync-server.image" -}}
-{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
-{{- if .Values.image.digest -}}
-{{- printf "%s:%s@%s" .Values.image.repository $tag .Values.image.digest -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- $digest := .Values.image.digest -}}
+{{- if and (not $digest) (not .Values.image.tag) -}}
+{{- $digest = index (.Chart.Annotations | default dict) "charg.github.io/image-digest" | default "" -}}
+{{- end -}}
+{{- if $digest -}}
+{{- printf "%s:%s@%s" .Values.image.repository $tag $digest -}}
 {{- else -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
 {{- end -}}

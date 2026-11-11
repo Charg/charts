@@ -24,3 +24,5 @@
 # Chart-local unit test suite (root-level only; templates/tests/ holds the helm test hook
 # and must stay in the packaged artifact).
 /tests/
+# Accepted trivy findings for lint/scan-images; repo tooling, not part of the chart.
+/.trivyignore.yaml

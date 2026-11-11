@@ -1,3 +1,4 @@
 ---
-# Everything at its defaults: SQLite on a chart-created PVC, running as the image's own root user.
+# Everything at its defaults: SQLite on a chart-created PVC, running as uid 1000 with a read-only
+# root filesystem and no capabilities (the restricted Pod Security Standard).
 domain: http://vaultwarden.ci.local

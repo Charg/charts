@@ -19,8 +19,13 @@ image:
   # -- Image pull policy.
   pullPolicy: IfNotPresent
   # -- Image tag. Defaults to .Chart.AppVersion when empty. Append "-alpine" here for the Alpine
-  # variant of the same release.
+  # variant of the same release. Setting a tag opts out of the chart's pinned digest.
   tag: ""
+  # -- Image digest, e.g. "sha256:...". Empty with tag also empty pulls the appVersion image by
+  # the digest the chart was released with (the charg.github.io/image-digest annotation in
+  # Chart.yaml); set one here to pin a different image. The tag is informational once a digest
+  # is in play: the runtime pulls by digest.
+  digest: ""
 
 # -- References to Secrets holding credentials for a private image registry.
 imagePullSecrets: []
@@ -48,13 +53,27 @@ podAnnotations: {}
 # -- Labels added to the pod.
 podLabels: {}
 
-# -- Pod-level securityContext. Upstream's image runs as root by default. To run unprivileged,
-# set runAsUser/runAsGroup/fsGroup here (e.g. 1000) so the data volume and the mounted secret
-# files are writable and readable by that user; see README.md for a hardened example.
-podSecurityContext: {}
+# -- Pod-level securityContext. Upstream's image runs as root, but works as any user: the chart
+# runs it as 1000 and fsGroup makes the data volume and the mounted credential files (0440)
+# readable and writable by it. Meets the "restricted" Pod Security Standard. See "Running
+# unprivileged" in README.md before upgrading an install whose data was written as root.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
 
-# -- Container-level securityContext.
-securityContext: {}
+# -- Container-level securityContext. Vaultwarden only writes to /data and /tmp (an emptyDir the
+# chart always mounts), so the root filesystem is read-only.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
 
 # -- Port Vaultwarden listens on inside the container, sent as ROCKET_PORT. Defaults to 8080
 # rather than the image's 80 so the same chart works unchanged when running as a non-root user,
@@ -252,6 +271,23 @@ httpRoute:
         type: PathPrefix
         value: /
 
+networkPolicy:
+  # -- Create a NetworkPolicy for the pod. Only takes effect on a CNI that enforces NetworkPolicy.
+  enabled: false
+  # -- Peers allowed to reach the HTTP port, as NetworkPolicy `from` entries, e.g. the ingress
+  # controller's namespace: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name:
+  # ingress-nginx}}}]. Empty admits any source, but still only to the HTTP port. The chart's own
+  # helm test pod is always admitted.
+  ingressFrom: []
+  # -- Additional ingress rules, as NetworkPolicy `ingress` entries.
+  extraIngress: []
+  # -- Restrict egress to DNS (port 53, any destination) plus extraEgress. Off by default:
+  # Vaultwarden reaches out for SMTP, push relay, SSO discovery, icon downloads and an external
+  # database, all of which then need an extraEgress rule.
+  restrictEgress: false
+  # -- Additional egress rules, as NetworkPolicy `egress` entries. Only used with restrictEgress.
+  extraEgress: []
+
 persistence:
   # -- Persist /data (the SQLite database, attachments, sends, RSA keys, icon cache and
   # config.json). Disabling it uses an emptyDir: every pod restart then loses all data, so only
@@ -333,7 +369,7 @@ test:
   image:
     # -- Image used by the helm test hook that calls GET <base path>/alive through the Service.
     repository: curlimages/curl
-    # -- Tag of the test image.
-    tag: "8.23.0"
+    # -- Tag of the test image, pinned to a digest.
+    tag: "8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
     # -- Pull policy of the test image.
     pullPolicy: IfNotPresent

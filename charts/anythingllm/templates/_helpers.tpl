@@ -83,6 +83,37 @@ Name of the PersistentVolumeClaim holding the data volume.
 {{- end }}
 
 {{/*
+The container image reference. An explicit image.digest wins. With image.tag and image.digest
+both empty, the appVersion image is pulled by the digest the chart was released with (the
+charg.github.io/image-digest annotation), so a re-pushed upstream tag cannot change what this
+chart version deploys. An explicit image.tag alone pulls that tag as-is: the annotation's digest
+belongs to appVersion and would silently override any other tag.
+*/}}
+{{- define "anythingllm.image" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion | toString -}}
+{{- $digest := .Values.image.digest -}}
+{{- if and (not $digest) (not .Values.image.tag) -}}
+{{- $digest = index (.Chart.Annotations | default dict) "charg.github.io/image-digest" | default "" -}}
+{{- end -}}
+{{- if $digest -}}
+{{- printf "%s:%s@%s" .Values.image.repository $tag $digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the operator supplies ANYTHINGLLM_CHROMIUM_ARGS themselves, through env or extraEnvVars.
+Their value then replaces the chart's sandbox-disabling flags rather than duplicating the variable.
+*/}}
+{{- define "anythingllm.userChromiumArgs" -}}
+{{- if hasKey .Values.env "ANYTHINGLLM_CHROMIUM_ARGS" }}true{{ end }}
+{{- range .Values.extraEnvVars }}
+{{- if eq (.name | default "") "ANYTHINGLLM_CHROMIUM_ARGS" }}true{{ end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Where the image expects its storage. Not configurable: the SQLite path is hardcoded in upstream's
 Prisma schema as server/storage/anythingllm.db, and the server locates the collector's upload
 directory relative to STORAGE_DIR, so any other mount path breaks one or the other.
@@ -157,6 +188,14 @@ Environment variables the chart sets itself. Credentials are always secretKeyRef
   value: {{ include "anythingllm.storagePath" . | quote }}
 - name: DISABLE_TELEMETRY
   value: {{ .Values.disableTelemetry | toString | quote }}
+{{- /*
+Without SYS_ADMIN (dropped by the default securityContext) Chromium's sandbox cannot start, and
+every page scrape fails. Rendered before the user's env, which then never contains it.
+*/}}
+{{- if and (not .Values.chromium.sandbox) (not (include "anythingllm.userChromiumArgs" .)) }}
+- name: ANYTHINGLLM_CHROMIUM_ARGS
+  value: "--no-sandbox,--disable-setuid-sandbox"
+{{- end }}
 {{- range (include "anythingllm.credentials" . | fromYamlArray) }}
 {{- if .value }}
 - name: {{ .env }}

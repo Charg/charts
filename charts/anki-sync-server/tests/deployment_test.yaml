@@ -21,9 +21,9 @@ tests:
       - equal:
           path: spec.strategy.type
           value: Recreate
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/charg/containers/anki-sync-server:0.0.0-test
+          pattern: ^ghcr\.io/charg/containers/anki-sync-server:0\.0\.0-test@sha256:[a-f0-9]{64}$
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
@@ -47,17 +47,63 @@ tests:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/charg/containers/anki-sync-server:26.05
 
-  - it: pulls by digest when one is set
+  - it: pulls an explicit digest, ahead of the chart's pinned one
     template: deployment.yaml
     chart:
       appVersion: 0.0.0-test
     set:
       image:
-        digest: sha256:0123abcd
+        digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/charg/containers/anki-sync-server:0\.0\.0-test@sha256:0{64}$
+
+  - it: rejects a digest that is not a sha256 digest
+    template: deployment.yaml
+    set:
+      image:
+        digest: latest
+    asserts:
+      - failedTemplate: {}
+
+  - it: meets the restricted Pod Security Standard by default
+    template: deployment.yaml
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].image
-          value: ghcr.io/charg/containers/anki-sync-server:0.0.0-test@sha256:0123abcd
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+  - it: rejects a misspelt security context field instead of dropping it
+    template: deployment.yaml
+    set:
+      securityContext:
+        readOnlyRootFileSystem: true
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown top-level value
+    template: deployment.yaml
+    set:
+      securityContex:
+        runAsNonRoot: true
+    asserts:
+      - failedTemplate: {}
 
   - it: renders no env and loads users from the chart Secret by default
     template: deployment.yaml

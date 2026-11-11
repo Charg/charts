@@ -64,6 +64,57 @@ sso:
 
 Both secrets are mounted read-only with `defaultMode: 0400`.
 
+## Security
+
+Technitium's image has no `USER` directive and runs as root by design, so the chart cannot meet
+the `restricted` [Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/),
+which forbids root. It meets `baseline` instead, and goes further than baseline requires: every
+capability is dropped except `NET_BIND_SERVICE` (to bind port 53, and any optional listener below
+1024), privilege escalation is off, and seccomp is `RuntimeDefault`:
+
+```yaml
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - NET_BIND_SERVICE
+```
+
+Root without `DAC_OVERRIDE` can still write `/etc/dns` and read the mounted secrets, because it
+owns both. This profile was checked against the 15.6.2 image with Docker (default seccomp, every
+capability but `NET_BIND_SERVICE` dropped, `no-new-privileges`): first boot, the HTTP and HTTPS
+consoles, writing config, zones and DNSSEC keys to the data volume, UDP and TCP queries,
+DNS-over-HTTPS forwarding, block list downloads and a restart against the existing volume all
+worked, with nothing denied in the logs.
+
+What it does take away is `NET_RAW`, which container runtimes grant by default and `baseline`
+does not let a pod add back. Nothing in the DNS server itself needs it, but ICMP from inside the
+container does, e.g. the Failover DNS app's ping health checks, unless the node allows
+unprivileged ICMP sockets (`net.ipv4.ping_group_range`, which containerd 2.x sets by default).
+DHCP is a separate matter: serving it generally needs host networking to see client broadcasts,
+which `baseline` forbids regardless of capabilities.
+
+To restore the previous behaviour, the container runtime's default capability set, set both to
+`null` (not `{}`: Helm merges a map value into the default instead of replacing it):
+
+```yaml
+podSecurityContext: null
+securityContext: null
+```
+
+### Pinned image digest
+
+Each chart version pins the image it was tested with by digest (the `charg.github.io/image-digest`
+annotation in `Chart.yaml`), so the deployed image cannot change under you if upstream re-pushes
+a tag. Setting `image.tag` opts out and pulls that tag as-is; set `image.digest` as well to pin it.
+The `helm test` images are pinned by digest in `test.image.tag` and `test.dnsImage.tag`, and run
+as non-root under the `restricted` standard.
+
 ## HTTPS console and clustering
 
 `webService.enableHttps` defaults to `true`, with `webService.useSelfSignedCert` also on by
@@ -118,6 +169,35 @@ ingress:
         - dns.example.com
 ```
 
+## Network policy
+
+`networkPolicy.enabled` renders a NetworkPolicy that admits traffic only to the ports the
+container declares: DNS over UDP and TCP, the web console, the HTTPS console while
+`webService.enableHttps` is on, and any enabled `optionalListeners` port. Narrow the sources with
+`ingressFrom`, typically to your DNS clients' networks plus the ingress controller's namespace:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - ipBlock:
+        cidr: 192.168.0.0/16
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+```
+
+With `ingressFrom` set, the chart's own `helm test` pods are always admitted, and so are the
+replicas to each other's DNS and HTTPS console ports, for native clustering and zone transfers.
+`ipBlock` matches the source address the pod actually sees, which keeps the client's own only
+with `externalTrafficPolicy: Local` (the default for both Service kinds).
+
+Egress is left open unless `restrictEgress` is set. With it set, only DNS (port 53, anywhere) and
+the replicas' HTTPS console port are allowed, plus an `extraEgress` rule for anything else. Port
+53 alone covers plain recursion, but a recursive resolver typically also needs 853 and 443 to
+arbitrary hosts (DNS-over-TLS and DNS-over-HTTPS forwarders) and HTTP(S) for block list and DNS
+app downloads, so `restrictEgress` mainly suits authoritative-only setups.
+
 ## High availability
 
 `replicaCount` scales independent DNS servers, not shards of one cluster: Technitium keeps
@@ -137,7 +217,8 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `replicaCount` | `1` | Number of StatefulSet replicas. |
 | `image.repository` | `docker.io/technitium/dns-server` | Image repository. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
-| `image.tag` | `""` | Image tag. Defaults to `.Chart.AppVersion` when empty. |
+| `image.tag` | `""` | Image tag. Defaults to `.Chart.AppVersion` when empty. Setting it opts out of the pinned digest. |
+| `image.digest` | `""` | Image digest. Empty, with `image.tag` also empty, uses the digest pinned in `Chart.yaml`. |
 | `imagePullSecrets` | `[]` | References to Secrets holding credentials for a private image registry. |
 | `nameOverride` | `""` | Overrides the chart name portion of generated resource names. |
 | `fullnameOverride` | `""` | Overrides the fully generated resource name. |
@@ -147,8 +228,8 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `serviceAccount.name` | `""` | Name of the ServiceAccount to use. |
 | `podAnnotations` | `{}` | Annotations added to the pod. |
 | `podLabels` | `{}` | Labels added to the pod. |
-| `podSecurityContext` | `{}` | Pod-level securityContext. |
-| `securityContext` | `{}` | Container-level securityContext. |
+| `podSecurityContext` | `RuntimeDefault` seccomp | Pod-level securityContext. See [Security](#security). |
+| `securityContext` | all capabilities dropped but `NET_BIND_SERVICE`, no privilege escalation | Container-level securityContext. `null` restores the runtime's defaults. |
 | `service.type` | `ClusterIP` | Service type for the DNS and web console ports. |
 | `service.dnsPort` | `53` | Port the DNS service listens on, both UDP and TCP. |
 | `service.webPort` | `5380` | Web console port (plain HTTP). Also sets `DNS_SERVER_WEB_SERVICE_HTTP_PORT`. First-boot only. |
@@ -203,6 +284,11 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `ingress.annotations` | `{}` | Annotations added to the Ingress. |
 | `ingress.hosts` | see `values.yaml` | Hosts and paths routed to the web console. |
 | `ingress.tls` | `[]` | TLS configuration blocks. |
+| `networkPolicy.enabled` | `false` | Create a NetworkPolicy for the pods (needs an enforcing CNI). |
+| `networkPolicy.ingressFrom` | `[]` | Peers allowed to reach the container's ports. Empty admits any source, to those ports only. The chart's helm test pods and its own replicas are always admitted. |
+| `networkPolicy.extraIngress` | `[]` | Additional ingress rules. |
+| `networkPolicy.restrictEgress` | `false` | Allow only DNS egress, the replicas' HTTPS console port and `extraEgress`. Mainly for authoritative-only setups. |
+| `networkPolicy.extraEgress` | `[]` | Additional egress rules, used with `restrictEgress`. |
 | `persistence.size` | `1Gi` | Size of the volumeClaimTemplate. |
 | `persistence.storageClass` | `""` | StorageClass for the volumeClaimTemplate. |
 | `persistence.accessModes` | `[ReadWriteOnce]` | Access modes for the volumeClaimTemplate. |
@@ -224,8 +310,8 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `podDisruptionBudget.maxUnavailable` | `1` | Maximum unavailable replicas. Mutually exclusive with `minAvailable`. |
 | `podDisruptionBudget.minAvailable` | `""` | Minimum available replicas. Mutually exclusive with `maxUnavailable`. |
 | `updateStrategy.type` | `RollingUpdate` | StatefulSet update strategy. |
-| `test.image.*` | see `values.yaml` | Image used by the `helm test` hook that calls the unauthenticated `GET /api/status` endpoint. |
-| `test.dnsImage.*` | see `values.yaml` | Image used by the `helm test` hook that resolves a name; needs a DNS client rather than curl. |
+| `test.image.*` | see `values.yaml` | Image used by the `helm test` hook that calls the unauthenticated `GET /api/status` endpoint. Tag pinned to a digest. |
+| `test.dnsImage.*` | see `values.yaml` | Image used by the `helm test` hook that resolves a name; needs a DNS client rather than curl. Tag pinned to a digest. |
 | `test.recursion.enabled` | `false` | Run a helm test that resolves a public name to prove recursion works. Off by default: needs egress to the public internet. |
 | `test.recursion.queryName` | `example.com` | Name the recursion test resolves. |
 

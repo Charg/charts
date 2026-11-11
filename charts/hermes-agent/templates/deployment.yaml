@@ -57,7 +57,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "hermes-agent.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - sh
@@ -111,7 +111,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "hermes-agent.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           # The image's entrypoint stays in place: it starts s6-overlay, which prepares the data
           # directory as root, then runs and supervises the gateway as the hermes user.

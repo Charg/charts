@@ -1,0 +1,137 @@
+---
+suite: test networkpolicy
+templates:
+  - networkpolicy.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: admits any source to the API server port only, and leaves egress alone
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app.kubernetes.io/name: hermes-agent
+            app.kubernetes.io/instance: RELEASE-NAME
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+      - equal:
+          path: spec.ingress
+          value:
+            - ports:
+                - port: api
+                  protocol: TCP
+      - notExists:
+          path: spec.egress
+
+  - it: admits the dashboard port too when the dashboard runs
+    set:
+      dashboard:
+        enabled: true
+      networkPolicy:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: api
+              protocol: TCP
+            - port: dashboard
+              protocol: TCP
+
+  - it: admits only the dashboard port when the API server is disabled
+    set:
+      apiServer:
+        enabled: false
+      dashboard:
+        enabled: true
+      networkPolicy:
+        enabled: true
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - port: dashboard
+              protocol: TCP
+
+  - it: admits nothing without any HTTP endpoint
+    set:
+      apiServer:
+        enabled: false
+      networkPolicy:
+        enabled: true
+    asserts:
+      - isNullOrEmpty:
+          path: spec.ingress
+
+  - it: restricts sources to ingressFrom plus the chart's own test pod
+    set:
+      networkPolicy:
+        enabled: true
+        ingressFrom:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: ingress-nginx
+    asserts:
+      - equal:
+          path: spec.ingress[0].from
+          value:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: ingress-nginx
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/instance: RELEASE-NAME
+                  app.kubernetes.io/component: test
+
+  - it: restricts egress to DNS plus extraEgress when asked
+    set:
+      networkPolicy:
+        enabled: true
+        restrictEgress: true
+        extraEgress:
+          - ports:
+              - port: 443
+                protocol: TCP
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+            - Egress
+      - equal:
+          path: spec.egress
+          value:
+            - ports:
+                - port: 53
+                  protocol: UDP
+                - port: 53
+                  protocol: TCP
+            - ports:
+                - port: 443
+                  protocol: TCP
+
+  - it: appends extraIngress rules
+    set:
+      networkPolicy:
+        enabled: true
+        extraIngress:
+          - from:
+              - podSelector:
+                  matchLabels:
+                    app: prometheus
+            ports:
+              - port: 9090
+    asserts:
+      - equal:
+          path: spec.ingress[1].ports[0].port
+          value: 9090

@@ -3,7 +3,7 @@ apiVersion: v2
 name: anki-sync-server
 description: Anki's self-hosted sync server, for syncing decks, review history and media between Anki clients.
 type: application
-version: 0.1.1
+version: 0.2.0
 appVersion: "26.09.4"
 keywords:
   - anki
@@ -19,3 +19,11 @@ maintainers:
   - name: chris
     email: chris@syn.sh
 icon: https://raw.githubusercontent.com/ankitects/anki/main/qt/aqt/data/web/imgs/anki-logo-thin.png
+annotations:
+  # The Pod Security Standard every pod this chart renders meets at its default values. CI
+  # installs each scenario into a namespace that enforces it.
+  charg.github.io/pod-security: restricted
+  # Digest of the appVersion image (the multi-arch index). Used whenever image.tag and
+  # image.digest are both left empty, so a re-pushed upstream tag cannot change what a published
+  # chart version deploys. Renovate updates it together with appVersion.
+  charg.github.io/image-digest: sha256:45e734865194259d5d03110d768920dbbe5cc048d7f563ff71b60f8fbac8fcf8

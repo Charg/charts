@@ -137,36 +137,49 @@ httpRoute:
 
 ## Running unprivileged
 
-Upstream's image runs as root, so the chart's default does too. It is built to run as any
-user, though: the container listens on `8080` (sent as `ROCKET_PORT`), which needs no
-privileges, and the only writable paths it needs are `/data` and `/tmp`. The `ci/hardened-values.yaml`
-integration scenario installs exactly this profile:
-
-```yaml
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 1000
-  runAsGroup: 1000
-  fsGroup: 1000
-  seccompProfile:
-    type: RuntimeDefault
-securityContext:
-  allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: true
-  capabilities:
-    drop:
-      - ALL
-extraVolumes:
-  - name: tmp
-    emptyDir: {}
-extraVolumeMounts:
-  - name: tmp
-    mountPath: /tmp
-```
+The chart runs Vaultwarden unprivileged by default, meeting the `restricted`
+[Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/):
+uid/gid `1000`, no capabilities, no privilege escalation, `RuntimeDefault` seccomp and a
+read-only root filesystem. Upstream's image runs as root, but works as any user: the container
+listens on `8080` (sent as `ROCKET_PORT`), which needs no privileges, and the only writable paths
+it needs are `/data` and `/tmp` (an `emptyDir` the chart always mounts).
 
 `fsGroup` is what makes both the data volume and the mounted credential files (mode `0440`,
 owned by root) readable by the non-root user. Storage that ignores `fsGroup` (hostPath-backed
 provisioners such as `local-path`) needs the volume's ownership fixed by hand first.
+
+### Upgrading from 0.1.x
+
+Chart versions before 0.2.0 ran the image as root. On an existing install, either:
+
+- let `fsGroup` re-own the volume: on storage that honours it, the first pod after the upgrade
+  makes `/data` group-writable by gid `1000`, and nothing else is needed; or
+- on storage that ignores `fsGroup`, `chown -R 1000:1000` the volume's contents once (for
+  instance from a throwaway root pod mounting the claim) before upgrading; or
+- keep running as root by setting `podSecurityContext: null` and `securityContext: null`. It has
+  to be `null`: Helm merges a map from your values into the chart's defaults, so `{}` changes
+  nothing.
+
+Remove any `/tmp` entry from `extraVolumes`/`extraVolumeMounts` that the old hardened example
+added: the chart now mounts its own, and refuses to render a second one.
+
+## Network policy
+
+`networkPolicy.enabled` renders a NetworkPolicy that admits traffic only to the HTTP port. Narrow
+the sources with `ingressFrom`, typically to your ingress controller or Gateway namespace:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+```
+
+Egress is left open unless `restrictEgress` is set, because Vaultwarden calls out to SMTP, the
+push relay, the SSO provider, icon sites and an external database, all of which depend on your
+configuration. With it set, only DNS is allowed; add an `extraEgress` rule for each of those.
 
 ## Persistence
 
@@ -184,9 +197,8 @@ persistence:
   existingClaim: vaultwarden
 ```
 
-Keep the security context the data was written with. Data written by the default (root) image
-is owned by root, and switching to a non-root `runAsUser` against it needs a one-off `chown`
-first. Back up `/data` (or the database) before the first upgrade onto this chart either way.
+Data written by a root-run image is owned by root: see [Upgrading from 0.1.x](#upgrading-from-01x)
+for making it writable by the chart's default non-root user. Back up `/data` (or the database) before the first upgrade onto this chart either way.
 
 ## Upgrades
 
@@ -194,6 +206,10 @@ first. Back up `/data` (or the database) before the first upgrade onto this char
 defaults to it. Vaultwarden runs any database migrations at start, which is why the startup
 probe allows up to five minutes by default (`startupProbe.failureThreshold` x `periodSeconds`).
 Append `-alpine` to `image.tag` for the Alpine build of the same release.
+
+Each chart version pins the image it was tested with by digest (the `charg.github.io/image-digest`
+annotation in `Chart.yaml`), so the deployed image cannot change under you if upstream re-pushes
+a tag. Setting `image.tag` opts out and pulls that tag as-is; set `image.digest` as well to pin it.
 
 ## Values
 
@@ -204,7 +220,8 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | --- | ------- | ----------- |
 | `image.repository` | `docker.io/vaultwarden/server` | Image repository. |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
-| `image.tag` | `""` | Image tag. Defaults to `.Chart.AppVersion` when empty. |
+| `image.tag` | `""` | Image tag. Defaults to `.Chart.AppVersion` when empty. Setting it opts out of the pinned digest. |
+| `image.digest` | `""` | Image digest. Empty, with `image.tag` also empty, uses the digest pinned in `Chart.yaml`. |
 | `imagePullSecrets` | `[]` | References to Secrets holding credentials for a private image registry. |
 | `nameOverride` | `""` | Overrides the chart name portion of generated resource names. |
 | `fullnameOverride` | `""` | Overrides the fully generated resource name. |
@@ -214,8 +231,8 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `serviceAccount.name` | `""` | Name of the ServiceAccount to use. |
 | `podAnnotations` | `{}` | Annotations added to the pod. |
 | `podLabels` | `{}` | Labels added to the pod. |
-| `podSecurityContext` | `{}` | Pod-level securityContext. See [Running unprivileged](#running-unprivileged). |
-| `securityContext` | `{}` | Container-level securityContext. |
+| `podSecurityContext` | uid/gid `1000`, `fsGroup` `1000`, `RuntimeDefault` seccomp | Pod-level securityContext. See [Running unprivileged](#running-unprivileged). |
+| `securityContext` | no capabilities, no privilege escalation, read-only root filesystem | Container-level securityContext. |
 | `containerPort` | `8080` | Port Vaultwarden listens on in the container, sent as `ROCKET_PORT`. |
 | `service.type` | `ClusterIP` | Service type. |
 | `service.port` | `80` | Service port for HTTP and WebSocket traffic. |
@@ -271,6 +288,11 @@ whenever `values.yaml` changes; there is no drift check enforcing that today.
 | `httpRoute.parentRefs` | `[]` | Gateways the route attaches to. Required when enabled. |
 | `httpRoute.hostnames` | `[]` | Hostnames the route matches. |
 | `httpRoute.matches` | `PathPrefix /` | Matches for the rule forwarding to the Service. |
+| `networkPolicy.enabled` | `false` | Create a NetworkPolicy for the pod (needs an enforcing CNI). |
+| `networkPolicy.ingressFrom` | `[]` | Peers allowed to reach the HTTP port. Empty admits any source, to that port only. The chart's helm test pod is always admitted. |
+| `networkPolicy.extraIngress` | `[]` | Additional ingress rules. |
+| `networkPolicy.restrictEgress` | `false` | Allow only DNS egress plus `extraEgress`. SMTP, push, SSO and an external database then each need a rule. |
+| `networkPolicy.extraEgress` | `[]` | Additional egress rules, used with `restrictEgress`. |
 | `persistence.enabled` | `true` | Persist `/data`; an emptyDir (data lost on restart) when false. |
 | `persistence.existingClaim` | `""` | Use an existing PersistentVolumeClaim. |
 | `persistence.size` | `1Gi` | Size of the PersistentVolumeClaim. |

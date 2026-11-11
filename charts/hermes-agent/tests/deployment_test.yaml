@@ -21,17 +21,15 @@ tests:
       - equal:
           path: spec.strategy.type
           value: Recreate
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: docker.io/nousresearch/hermes-agent:0.0.0-test
-      - equal:
+          pattern: ^docker\.io/nousresearch/hermes-agent:0\.0\.0-test@sha256:[a-f0-9]{64}$
+      - matchRegex:
           path: spec.template.spec.initContainers[0].image
-          value: docker.io/nousresearch/hermes-agent:0.0.0-test
+          pattern: ^docker\.io/nousresearch/hermes-agent:0\.0\.0-test@sha256:[a-f0-9]{64}$
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
-      - notExists:
-          path: spec.template.spec.securityContext
 
   - it: honours an explicit image tag in both containers
     template: deployment.yaml
@@ -45,6 +43,97 @@ tests:
       - equal:
           path: spec.template.spec.initContainers[0].image
           value: docker.io/nousresearch/hermes-agent:v0.22.3
+
+  - it: pulls an explicit digest, ahead of the chart's pinned one, in both containers
+    template: deployment.yaml
+    chart:
+      appVersion: 0.0.0-test
+    set:
+      image:
+        repository: hermes
+        digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: hermes:0.0.0-test@sha256:0000000000000000000000000000000000000000000000000000000000000000
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: hermes:0.0.0-test@sha256:0000000000000000000000000000000000000000000000000000000000000000
+
+  - it: renders a numeric image tag as a string
+    template: deployment.yaml
+    set:
+      image:
+        tag: 26
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/nousresearch/hermes-agent:26
+
+  - it: rejects a digest that is not a sha256 digest
+    template: deployment.yaml
+    set:
+      image:
+        digest: latest
+    asserts:
+      - failedTemplate: {}
+
+  - it: meets the baseline Pod Security Standard by default, in both containers
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value: &minimal
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - DAC_OVERRIDE
+                - FOWNER
+                - SETUID
+                - SETGID
+                - KILL
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value: *minimal
+      - notExists:
+          path: spec.template.spec.securityContext.runAsNonRoot
+
+  - it: drops the security contexts when set to null, restoring the runtime defaults
+    template: deployment.yaml
+    set:
+      podSecurityContext: null
+      securityContext: null
+    asserts:
+      - notExists:
+          path: spec.template.spec.securityContext
+      - notExists:
+          path: spec.template.spec.containers[0].securityContext
+      - notExists:
+          path: spec.template.spec.initContainers[0].securityContext
+
+  - it: rejects a misspelt security context field instead of dropping it
+    template: deployment.yaml
+    set:
+      securityContext:
+        allowPrivilegeEscalaton: false
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown top-level value
+    template: deployment.yaml
+    set:
+      securityContex:
+        allowPrivilegeEscalation: false
+    asserts:
+      - failedTemplate: {}
 
   - it: keeps the image entrypoint and runs the gateway under s6
     template: deployment.yaml
@@ -404,15 +493,22 @@ tests:
           path: spec.template.metadata.annotations["checksum/config"]
           value: c50e6c0c443460453a2d61d3026a7e2593300e9d2a8c4a073175be41cef24298
 
-  - it: applies the securityContext to both containers
+  - it: merges a securityContext override into the defaults, in both containers
     template: deployment.yaml
     set:
       securityContext:
-        allowPrivilegeEscalation: false
+        capabilities:
+          add:
+            - NET_RAW
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
-          value: false
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          value:
+            - NET_RAW
       - equal:
-          path: spec.template.spec.initContainers[0].securityContext.allowPrivilegeEscalation
+          path: spec.template.spec.initContainers[0].securityContext.capabilities.add
+          value:
+            - NET_RAW
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
           value: false

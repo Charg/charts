@@ -10,10 +10,23 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation
 spec:
   restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    # The curl image's user is named (curl_user), which runAsNonRoot cannot verify; pin its uid.
+    runAsUser: 100
+    runAsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: api-check
       image: "{{ .Values.test.image.repository }}:{{ .Values.test.image.tag }}"
       imagePullPolicy: {{ .Values.test.image.pullPolicy }}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop:
+            - ALL
       {{- if include "hermes-agent.hasApiKey" . }}
       env:
         {{- range (include "hermes-agent.credentials" . | fromYamlArray) }}

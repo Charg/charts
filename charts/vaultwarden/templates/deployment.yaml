@@ -47,7 +47,7 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "vaultwarden.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             {{- include "vaultwarden.env" . | nindent 12 }}
@@ -92,6 +92,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            # Always mounted, so the default read-only root filesystem still leaves Vaultwarden
+            # the scratch space it writes uploads and temporary files to.
+            - name: tmp
+              mountPath: /tmp
             {{- if include "vaultwarden.hasCredentials" . }}
             - name: credentials
               mountPath: {{ include "vaultwarden.secretsMountPath" . }}
@@ -108,6 +112,8 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: tmp
+          emptyDir: {}
         {{- if include "vaultwarden.hasCredentials" . }}
         - name: credentials
           projected:

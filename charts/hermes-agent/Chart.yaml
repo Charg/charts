@@ -3,7 +3,7 @@ apiVersion: v2
 name: hermes-agent
 description: Nous Research's self-improving AI agent with an OpenAI-compatible API server and web dashboard.
 type: application
-version: 0.1.4
+version: 0.2.0
 appVersion: "v0.22.7"
 keywords:
   - hermes
@@ -18,3 +18,13 @@ maintainers:
   - name: chris
     email: chris@syn.sh
 icon: https://github.com/NousResearch.png
+annotations:
+  # The Pod Security Standard every pod this chart renders meets at its default values. CI
+  # installs each scenario into a namespace that enforces it. Baseline, not restricted: the image
+  # must start as root and drop to its own user, but the capabilities it keeps are all within
+  # baseline's allowed set.
+  charg.github.io/pod-security: baseline
+  # Digest of the appVersion image (the multi-arch index). Used whenever image.tag and
+  # image.digest are both left empty, so a re-pushed upstream tag cannot change what a published
+  # chart version deploys. Renovate updates it together with appVersion.
+  charg.github.io/image-digest: sha256:e6d81ae52ebf6a43efa529701405509f20054ba818f179ddd748bed4f8af584c

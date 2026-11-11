@@ -1,0 +1,8 @@
+---
+# HIGH/CRITICAL trivy findings this chart accepts, read by hack/lint.sh (misconfigurations) and
+# hack/scan-images.sh (vulnerabilities). Every entry states why it cannot be fixed in the chart.
+misconfigurations:
+  - id: KSV-0014
+    statement: >-
+      Root filesystem left writable: the .NET runtime and the server's apps write outside
+      /etc/dns, and a read-only root has not been tested against them. Revisit with an emptyDir set.

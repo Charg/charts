@@ -13,8 +13,14 @@ image:
   repository: docker.io/technitium/dns-server
   # -- Image pull policy.
   pullPolicy: IfNotPresent
-  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  # -- Image tag. Defaults to .Chart.AppVersion when empty. Setting a tag opts out of the chart's
+  # pinned digest.
   tag: ""
+  # -- Image digest, e.g. "sha256:...". Empty with tag also empty pulls the appVersion image by
+  # the digest the chart was released with (the charg.github.io/image-digest annotation in
+  # Chart.yaml); set one here to pin a different image. The tag is informational once a digest
+  # is in play: the runtime pulls by digest.
+  digest: ""
 
 # -- References to Secrets holding credentials for a private image registry.
 imagePullSecrets: []
@@ -42,11 +48,23 @@ podAnnotations: {}
 podLabels: {}
 
 # -- Pod-level securityContext. The image has no USER directive and runs as root by design, so it
-# can bind port 53 without NET_BIND_SERVICE and needs no fsGroup handling to write the PVC.
-podSecurityContext: {}
+# needs no fsGroup handling to write the PVC. Meets the "baseline" Pod Security Standard, not
+# "restricted", which forbids running as root. See "Security" in README.md.
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
 
-# -- Container-level securityContext.
-securityContext: {}
+# -- Container-level securityContext. Root, but with every capability dropped except
+# NET_BIND_SERVICE (to bind port 53 and any optional listener below 1024) and no privilege
+# escalation. Set to null (not {}, which Helm merges into this default) to restore the container
+# runtime's default capability set.
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - NET_BIND_SERVICE
 
 service:
   # -- Service type for the DNS and web console ports.
@@ -307,6 +325,26 @@ ingress:
   # -- TLS configuration blocks, as in a standard networking.k8s.io/v1 Ingress spec.
   tls: []
 
+networkPolicy:
+  # -- Create a NetworkPolicy for the pods. Only takes effect on a CNI that enforces NetworkPolicy.
+  enabled: false
+  # -- Peers allowed to reach the container's ports (DNS over UDP and TCP, the web console, the
+  # HTTPS console while webService.enableHttps is on, and any enabled optionalListeners port), as
+  # NetworkPolicy `from` entries, e.g. [{ipBlock: {cidr: 192.168.0.0/16}}] for a LAN's DNS
+  # clients, or the ingress controller's namespace. Empty admits any source, but still only to
+  # those ports. When set, the chart's own helm test pods are always admitted, and so are the
+  # chart's own replicas to each other's DNS and HTTPS console ports (clustering, zone transfers).
+  ingressFrom: []
+  # -- Additional ingress rules, as NetworkPolicy `ingress` entries.
+  extraIngress: []
+  # -- Restrict egress to DNS (port 53, any destination), the replicas' own HTTPS console port
+  # (clustering), plus extraEgress. Off by default: a recursive resolver also reaches arbitrary
+  # hosts on 853 and 443 (DNS-over-TLS/HTTPS forwarders and upstreams) and downloads block lists
+  # and DNS apps over HTTP(S), so this mainly suits authoritative-only setups.
+  restrictEgress: false
+  # -- Additional egress rules, as NetworkPolicy `egress` entries. Only used with restrictEgress.
+  extraEgress: []
+
 persistence:
   # -- Size of the volumeClaimTemplate backing the data directory (config, zones, DNSSEC keys, stats, apps).
   size: 1Gi
@@ -433,15 +471,15 @@ test:
   image:
     # -- Image used by the helm test hook to call the unauthenticated GET /api/status endpoint.
     repository: curlimages/curl
-    # -- Tag of the test image.
-    tag: "8.23.0"
+    # -- Tag of the test image, pinned to a digest.
+    tag: "8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
     # -- Pull policy of the test image.
     pullPolicy: IfNotPresent
   dnsImage:
     # -- Image used by the helm test hook that resolves a name, needs a DNS client rather than curl.
     repository: busybox
-    # -- Tag of the DNS test image.
-    tag: "1.38"
+    # -- Tag of the DNS test image, pinned to a digest.
+    tag: "1.38@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4"
     # -- Pull policy of the DNS test image.
     pullPolicy: IfNotPresent
   recursion:

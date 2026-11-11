@@ -75,17 +75,42 @@ sub-path doesn't work.
 
 The image runs as distroless' `nonroot` user (65532), and the chart's defaults run it with a
 read-only root filesystem, no capabilities, no privilege escalation and the `RuntimeDefault`
-seccomp profile. `fsGroup: 65532` makes the data volume writable; `/tmp` is an `emptyDir`.
+seccomp profile, meeting the `restricted`
+[Pod Security Standard](https://kubernetes.io/docs/concepts/security/pod-security-standards/).
+So does the `helm test` pod. `fsGroup: 65532` makes the data volume writable; `/tmp` is an
+`emptyDir`. A misspelt field in `podSecurityContext` or `securityContext` fails the install
+rather than being silently dropped.
 
 The image tag follows the Anki version and is rebuilt in place when its base image picks up
-security fixes. Pin `image.digest` if you need byte-for-byte reproducible deploys, and verify the
-signature with:
+security fixes, so each chart version pins the image it was tested with by digest (the
+`charg.github.io/image-digest` annotation in `Chart.yaml`); Renovate bumps the pinned digest
+when the tag is rebuilt. Setting `image.tag` opts out and pulls that tag as-is; set
+`image.digest` as well to pin it. Verify the signature with:
 
 ```bash
 cosign verify ghcr.io/charg/containers/anki-sync-server:26.09.4 \
   --certificate-identity-regexp '^https://github.com/Charg/containers/\.github/workflows/release\.yaml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+## Network policy
+
+`networkPolicy.enabled` renders a NetworkPolicy that admits traffic only to the HTTP port. Narrow
+the sources with `ingressFrom`, typically to your ingress controller or Gateway namespace:
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  restrictEgress: true
+```
+
+The chart's own `helm test` pod is always admitted. The sync server makes no outbound
+connections of its own, so `restrictEgress` (only DNS, plus any `extraEgress` rules) is safe to
+turn on as-is.
 
 ## Persistence
 

@@ -48,15 +48,19 @@ docker exec "${CONTAINER}" docker info >/dev/null 2>&1 || {
 
 # Install a single-user nix once per container lifetime. The dind image is Alpine (musl), so
 # gcompat provides the glibc shim the official nix binaries need; xz/tar/curl are the installer's
-# own dependencies. Sandboxing is disabled because the nested daemon has no user-namespace setup
-# to build in. Flakes are enabled globally so `nix develop` resolves flake.lock.
+# own dependencies, and coreutils too, as newer installers use GNU-only cp flags. Sandboxing is
+# disabled because the nested daemon has no user-namespace setup to build in. Flakes are enabled
+# globally so `nix develop` resolves flake.lock.
 docker exec "${CONTAINER}" sh -c '
   set -e
   if [ ! -e /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ] &&
      [ ! -e "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
-    apk add --no-cache bash curl xz git tar gcompat >/dev/null
+    apk add --no-cache bash coreutils curl xz git tar gcompat >/dev/null
     mkdir -p /etc/nix
-    printf "experimental-features = nix-command flakes\nsandbox = false\n" >/etc/nix/nix.conf
+    # build-users-group empty: a single-user install as root has no nixbld group to build as.
+    printf "experimental-features = nix-command flakes\nsandbox = false\nbuild-users-group =\n" >/etc/nix/nix.conf
+    # The installer creates /nix through sudo, which the dind image does not ship; we are root.
+    mkdir -m 0755 -p /nix
     curl -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon >/dev/null
   fi
 '
@@ -75,6 +79,8 @@ echo "==> just $*"
 # Source the single-user nix profile, then enter the flake dev shell to run the recipes. bash is
 # required: the installer profile script uses bashisms and the hack/ scripts have a bash shebang.
 docker exec --workdir /work "${CONTAINER}" bash -lc '
+  # nix.sh sets nothing up unless USER is set, and docker exec does not set it.
+  export USER="${USER:-root}"
   . "$HOME/.nix-profile/etc/profile.d/nix.sh"
   exec nix develop -c just "$@"
 ' bash "$@"

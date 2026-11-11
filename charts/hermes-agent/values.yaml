@@ -19,8 +19,14 @@ image:
   repository: docker.io/nousresearch/hermes-agent
   # -- Image pull policy.
   pullPolicy: IfNotPresent
-  # -- Image tag. Defaults to .Chart.AppVersion when empty.
+  # -- Image tag. Defaults to .Chart.AppVersion when empty. Setting a tag opts out of the chart's
+  # pinned digest.
   tag: ""
+  # -- Image digest, e.g. "sha256:...". Empty with tag also empty pulls the appVersion image by
+  # the digest the chart was released with (the charg.github.io/image-digest annotation in
+  # Chart.yaml); set one here to pin a different image. The tag is informational once a digest
+  # is in play: the runtime pulls by digest.
+  digest: ""
 
 # -- References to Secrets holding credentials for a private image registry.
 imagePullSecrets: []
@@ -48,16 +54,31 @@ podAnnotations: {}
 # -- Labels added to the pod.
 podLabels: {}
 
-# -- Pod-level securityContext. Empty by default because the image must start as root: its
-# s6-overlay init fixes ownership of the data volume, seeds and migrates the config, then drops
-# to the unprivileged `hermes` user (uid 10000, remappable with env.HERMES_UID / HERMES_GID)
-# before starting the gateway. Setting runAsUser/runAsNonRoot makes the image refuse to start.
-podSecurityContext: {}
+# -- Pod-level securityContext. No runAsUser / runAsNonRoot, because the image must start as
+# root: its s6-overlay init fixes ownership of the data volume, seeds and migrates the config,
+# then drops to the unprivileged `hermes` user (uid 10000, remappable with env.HERMES_UID /
+# HERMES_GID) before starting the gateway. Setting runAsUser/runAsNonRoot makes the image refuse
+# to start. Together with securityContext, meets the "baseline" Pod Security Standard.
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
 
-# -- Container-level securityContext, applied to the init container too. See "Running with
-# minimal privileges" in README.md for the capability set that is enough for the root-then-drop
-# start; ci/hardened-values.yaml installs exactly that profile.
-securityContext: {}
+# -- Container-level securityContext, applied to the init container too. Every capability is
+# dropped except the six the root-then-drop start needs, all within baseline's allowed set. See
+# "Running with minimal privileges" in README.md, including how to restore the runtime's default
+# capabilities if a tool needs one of them (e.g. NET_RAW for ping).
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
+      - KILL
 
 # -- Hermes config.yaml settings the chart enforces, as a nested map in upstream's config.yaml
 # schema, e.g. {model: {provider: custom, base_url: "http://litellm:4000/v1", default: gpt-5-mini,
@@ -190,6 +211,25 @@ httpRoute:
         type: PathPrefix
         value: /
 
+networkPolicy:
+  # -- Create a NetworkPolicy for the pod. Only takes effect on a CNI that enforces NetworkPolicy.
+  enabled: false
+  # -- Peers allowed to reach the API server port (and the dashboard port, when enabled), as
+  # NetworkPolicy `from` entries, e.g. the ingress controller's namespace: [{namespaceSelector:
+  # {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}}]. Empty admits any source, but
+  # still only to those ports. The chart's own helm test pod is always admitted.
+  ingressFrom: []
+  # -- Additional ingress rules, as NetworkPolicy `ingress` entries.
+  extraIngress: []
+  # -- Restrict egress to DNS (port 53, any destination) plus extraEgress. Off by default: Hermes
+  # is an agent whose whole job is reaching out, to its LLM provider, to the web, search and
+  # browser tools, to MCP servers, and to messaging platforms (Telegram, Discord, Slack, ...), and
+  # its terminal tool installs packages. Each of those then needs an extraEgress rule, typically
+  # HTTPS (443) to the internet or to an in-cluster model gateway.
+  restrictEgress: false
+  # -- Additional egress rules, as NetworkPolicy `egress` entries. Only used with restrictEgress.
+  extraEgress: []
+
 persistence:
   # -- Persist the data directory (/opt/data, HERMES_HOME): sessions, memory, skills, the user
   # config.yaml and .env, logs and the SQLite state. Disabling it uses an emptyDir: every pod
@@ -286,7 +326,7 @@ test:
   image:
     # -- Image used by the helm test hook that calls the API server (or dashboard) through the Service.
     repository: curlimages/curl
-    # -- Tag of the test image.
-    tag: "8.23.0"
+    # -- Tag of the test image, pinned to a digest.
+    tag: "8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93"
     # -- Pull policy of the test image.
     pullPolicy: IfNotPresent

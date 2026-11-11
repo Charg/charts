@@ -17,9 +17,12 @@ tests:
       - equal:
           path: spec.strategy.type
           value: Recreate
-      - equal:
+      - matchRegex:
           path: spec.template.spec.containers[0].image
-          value: docker.io/mintplexlabs/anythingllm:0.0.0-test
+          pattern: ^docker\.io/mintplexlabs/anythingllm:0\.0\.0-test@sha256:[a-f0-9]{64}$
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].image
+          pattern: ^docker\.io/mintplexlabs/anythingllm:0\.0\.0-test@sha256:[a-f0-9]{64}$
       - equal:
           path: spec.template.spec.automountServiceAccountToken
           value: false
@@ -39,7 +42,40 @@ tests:
           path: spec.template.spec.initContainers[0].image
           value: docker.io/mintplexlabs/anythingllm:1.17.0
 
-  - it: runs as the image's own unprivileged user with a group-writable volume by default
+  - it: pulls an explicit digest, ahead of the chart's pinned one, in both containers
+    template: deployment.yaml
+    chart:
+      appVersion: 0.0.0-test
+    set:
+      image:
+        digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^docker\.io/mintplexlabs/anythingllm:0\.0\.0-test@sha256:0{64}$
+      - matchRegex:
+          path: spec.template.spec.initContainers[0].image
+          pattern: ^docker\.io/mintplexlabs/anythingllm:0\.0\.0-test@sha256:0{64}$
+
+  - it: renders a numeric image tag as a string
+    template: deployment.yaml
+    set:
+      image:
+        tag: 26
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/mintplexlabs/anythingllm:26
+
+  - it: rejects a digest that is not a sha256 digest
+    template: deployment.yaml
+    set:
+      image:
+        digest: latest
+    asserts:
+      - failedTemplate: {}
+
+  - it: meets the restricted Pod Security Standard by default, init container included
     template: deployment.yaml
     asserts:
       - equal:
@@ -50,8 +86,96 @@ tests:
             runAsGroup: 1000
             fsGroup: 1000
             fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
 
-  - it: renders only the chart-owned variables when nothing else is configured
+  - it: rejects a misspelt security context field instead of dropping it
+    template: deployment.yaml
+    set:
+      securityContext:
+        allowPrivilegeEscalaton: false
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects an unknown top-level value
+    template: deployment.yaml
+    set:
+      securityContex:
+        runAsNonRoot: true
+    asserts:
+      - failedTemplate: {}
+
+  - it: keeps Chromium's sandbox when asked, leaving ANYTHINGLLM_CHROMIUM_ARGS unset
+    template: deployment.yaml
+    set:
+      chromium:
+        sandbox: true
+      securityContext:
+        capabilities:
+          add:
+            - SYS_ADMIN
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: ANYTHINGLLM_CHROMIUM_ARGS
+
+  - it: lets env.ANYTHINGLLM_CHROMIUM_ARGS replace the chart's flags
+    template: deployment.yaml
+    set:
+      env:
+        ANYTHINGLLM_CHROMIUM_ARGS: --no-sandbox,--disable-setuid-sandbox,--disable-gpu
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ANYTHINGLLM_CHROMIUM_ARGS
+            value: --no-sandbox,--disable-setuid-sandbox,--disable-gpu
+      - lengthEqual:
+          path: spec.template.spec.containers[0].env
+          count: 4
+
+  - it: lets an extraEnvVars ANYTHINGLLM_CHROMIUM_ARGS replace the chart's flags
+    template: deployment.yaml
+    set:
+      extraEnvVars:
+        - name: ANYTHINGLLM_CHROMIUM_ARGS
+          valueFrom:
+            configMapKeyRef:
+              name: chromium
+              key: args
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - name: SERVER_PORT
+              value: "3001"
+            - name: STORAGE_DIR
+              value: /app/server/storage
+            - name: DISABLE_TELEMETRY
+              value: "true"
+            - name: ANYTHINGLLM_CHROMIUM_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  name: chromium
+                  key: args
+
+  - it: renders only the chart-owned variables, Chromium unsandboxed, when nothing else is configured
     template: deployment.yaml
     asserts:
       - equal:
@@ -63,6 +187,8 @@ tests:
               value: /app/server/storage
             - name: DISABLE_TELEMETRY
               value: "true"
+            - name: ANYTHINGLLM_CHROMIUM_ARGS
+              value: --no-sandbox,--disable-setuid-sandbox
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 3001
@@ -177,6 +303,8 @@ tests:
               value: /app/server/storage
             - name: DISABLE_TELEMETRY
               value: "true"
+            - name: ANYTHINGLLM_CHROMIUM_ARGS
+              value: --no-sandbox,--disable-setuid-sandbox
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -273,6 +401,8 @@ tests:
               value: /app/server/storage
             - name: DISABLE_TELEMETRY
               value: "true"
+            - name: ANYTHINGLLM_CHROMIUM_ARGS
+              value: --no-sandbox,--disable-setuid-sandbox
             - name: LITE_LLM_MODEL_TOKEN_LIMIT
               value: "32768"
             - name: LLM_PROVIDER
@@ -290,29 +420,18 @@ tests:
             - secretRef:
                 name: provider-keys
 
-  - it: applies the container securityContext to the init container too
+  - it: applies an overridden container securityContext to the init container too
     template: deployment.yaml
     set:
       securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
+        readOnlyRootFilesystem: false
     asserts:
       - equal:
-          path: spec.template.spec.initContainers[0].securityContext
-          value:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+          path: spec.template.spec.initContainers[0].securityContext.readOnlyRootFilesystem
+          value: false
       - equal:
-          path: spec.template.spec.containers[0].securityContext
-          value:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: false
 
   - it: passes scheduling values through
     template: deployment.yaml

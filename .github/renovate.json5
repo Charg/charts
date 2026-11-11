@@ -32,6 +32,8 @@
   lockFileMaintenance: {
     enabled: true,
     schedule: ["before 6am on monday"],
+    // Re-locking nixpkgs swaps the whole release toolchain; see the nix package rule below.
+    automerge: false,
   },
 
   packageRules: [
@@ -41,10 +43,32 @@
       automerge: false,
     },
     {
-      // GitHub Actions are SHA-pinned with a version comment; keep that pinning on update.
+      // GitHub Actions are SHA-pinned with a version comment; keep that pinning on update. They
+      // run inside the job that signs releases, so a compromised action release is a signed
+      // malicious chart: a human reads these before they merge, however small.
       matchManagers: ["github-actions"],
       pinDigests: true,
       groupName: "github actions",
+      automerge: false,
+    },
+    {
+      // nixpkgs supplies helm, cosign and every other tool in the release job, for the same
+      // reason as the actions above.
+      matchManagers: ["nix"],
+      automerge: false,
+    },
+    {
+      // The same tag pointing at a new digest. Upstream re-pushing a tag is either a rebuild or a
+      // compromise, and only a human can tell which.
+      matchUpdateTypes: ["digest"],
+      automerge: false,
+    },
+    {
+      // Except for images this project builds and signs itself (Charg/containers), which are
+      // rebuilt in place for base-image fixes. CI verifies their signature before merge.
+      matchUpdateTypes: ["digest"],
+      matchDepNames: ["charg/containers/**"],
+      automerge: true,
     },
     {
       // The Technitium image is the payload. Surface it on its own so a DNS-server bump
@@ -88,14 +112,20 @@
   ],
 
   // appVersion in each Chart.yaml is the source of truth for its image tag (values.yaml
-  // image.tag defaults to .Chart.AppVersion). Track the upstream Docker Hub tag and rewrite it
-  // there. One manager per chart: the file pattern is what ties an appVersion to its image, so
+  // image.tag defaults to .Chart.AppVersion), and the charg.github.io/image-digest annotation
+  // beside it pins that tag's digest. Track the upstream tag and rewrite both together, so a
+  // version bump can never leave the old digest behind (the runtime pulls by digest, so a stale
+  // one would silently keep deploying the previous release). One manager per chart: the file pattern is what ties an appVersion to its image, so
   // a manager matching every Chart.yaml would track every chart against the same image.
   customManagers: [
     {
       customType: "regex",
       managerFilePatterns: ["/^charts/anki-sync-server/Chart\\.yaml$/"],
-      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      matchStringsStrategy: "combination",
+      matchStrings: [
+        "appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
+        "charg\\.github\\.io/image-digest:\\s*\"?(?<currentDigest>sha256:[a-f0-9]{64})\"?",
+      ],
       depNameTemplate: "charg/containers/anki-sync-server",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://ghcr.io",
@@ -103,7 +133,11 @@
     {
       customType: "regex",
       managerFilePatterns: ["/^charts/technitium-dns-server/Chart\\.yaml$/"],
-      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      matchStringsStrategy: "combination",
+      matchStrings: [
+        "appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
+        "charg\\.github\\.io/image-digest:\\s*\"?(?<currentDigest>sha256:[a-f0-9]{64})\"?",
+      ],
       depNameTemplate: "technitium/dns-server",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://index.docker.io",
@@ -111,7 +145,11 @@
     {
       customType: "regex",
       managerFilePatterns: ["/^charts/vaultwarden/Chart\\.yaml$/"],
-      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      matchStringsStrategy: "combination",
+      matchStrings: [
+        "appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
+        "charg\\.github\\.io/image-digest:\\s*\"?(?<currentDigest>sha256:[a-f0-9]{64})\"?",
+      ],
       depNameTemplate: "vaultwarden/server",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://index.docker.io",
@@ -119,7 +157,11 @@
     {
       customType: "regex",
       managerFilePatterns: ["/^charts/anythingllm/Chart\\.yaml$/"],
-      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      matchStringsStrategy: "combination",
+      matchStrings: [
+        "appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
+        "charg\\.github\\.io/image-digest:\\s*\"?(?<currentDigest>sha256:[a-f0-9]{64})\"?",
+      ],
       depNameTemplate: "mintplexlabs/anythingllm",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://index.docker.io",
@@ -127,7 +169,11 @@
     {
       customType: "regex",
       managerFilePatterns: ["/^charts/hermes-agent/Chart\\.yaml$/"],
-      matchStrings: ["appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?"],
+      matchStringsStrategy: "combination",
+      matchStrings: [
+        "appVersion:\\s*\"?(?<currentValue>[^\"\\s]+)\"?",
+        "charg\\.github\\.io/image-digest:\\s*\"?(?<currentDigest>sha256:[a-f0-9]{64})\"?",
+      ],
       depNameTemplate: "nousresearch/hermes-agent",
       datasourceTemplate: "docker",
       registryUrlTemplate: "https://index.docker.io",

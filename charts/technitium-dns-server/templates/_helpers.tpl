@@ -78,6 +78,71 @@ Create the name of the service account to use
 {{- end }}
 
 {{/*
+The container image reference. An explicit image.digest wins. With image.tag and image.digest
+both empty, the appVersion image is pulled by the digest the chart was released with (the
+charg.github.io/image-digest annotation), so a re-pushed upstream tag cannot change what this
+chart version deploys. An explicit image.tag alone pulls that tag as-is: the annotation's digest
+belongs to appVersion and would silently override any other tag.
+*/}}
+{{- define "technitium-dns-server.image" -}}
+{{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
+{{- $digest := .Values.image.digest -}}
+{{- if and (not $digest) (not .Values.image.tag) -}}
+{{- $digest = index (.Chart.Annotations | default dict) "charg.github.io/image-digest" | default "" -}}
+{{- end -}}
+{{- if $digest -}}
+{{- printf "%s:%s@%s" .Values.image.repository $tag $digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+NetworkPolicy port entries for every port the StatefulSet's container declares, by name, under
+the same conditions the StatefulSet declares them. Keep the two in step.
+*/}}
+{{- define "technitium-dns-server.networkPolicyPorts" -}}
+- port: dns-udp
+  protocol: UDP
+- port: dns-tcp
+  protocol: TCP
+- port: web
+  protocol: TCP
+{{- if .Values.webService.enableHttps }}
+- port: web-https
+  protocol: TCP
+{{- end }}
+{{- if .Values.optionalListeners.dnsOverTls.enabled }}
+- port: dns-tls
+  protocol: TCP
+{{- end }}
+{{- if .Values.optionalListeners.dnsOverQuic.enabled }}
+- port: dns-quic
+  protocol: UDP
+{{- end }}
+{{- if .Values.optionalListeners.dnsOverHttps.enabled }}
+- port: dns-https
+  protocol: TCP
+{{- end }}
+{{- if .Values.optionalListeners.dnsOverHttp3.enabled }}
+- port: dns-http3
+  protocol: UDP
+{{- end }}
+{{- if .Values.optionalListeners.dnsOverHttpPort80.enabled }}
+- port: dns-http-80
+  protocol: TCP
+{{- end }}
+{{- if .Values.optionalListeners.dnsOverHttpPort8053.enabled }}
+- port: dns-http-8053
+  protocol: TCP
+{{- end }}
+{{- if .Values.optionalListeners.dhcp.enabled }}
+- port: dhcp
+  protocol: UDP
+{{- end }}
+{{- end }}
+
+{{/*
 Name of the headless governing Service required by the StatefulSet.
 */}}
 {{- define "technitium-dns-server.headlessServiceName" -}}
