@@ -82,5 +82,7 @@ docker exec --workdir /work "${CONTAINER}" bash -lc '
   # nix.sh sets nothing up unless USER is set, and docker exec does not set it.
   export USER="${USER:-root}"
   . "$HOME/.nix-profile/etc/profile.d/nix.sh"
-  exec nix develop -c just "$@"
+  # One just call per recipe: a variadic recipe (e2e *args) would otherwise swallow the recipe
+  # names after it as its arguments.
+  exec nix develop -c bash -ec '"'"'for recipe in "$@"; do just "${recipe}"; done'"'"' bash "$@"
 ' bash "$@"

@@ -33,6 +33,43 @@ list_charts() {
     sort
 }
 
+# Files that cannot change how any chart installs, so touching them alone does not widen the
+# e2e selection to every chart. Anything else outside charts/ does.
+E2E_NEUTRAL_PATHS='^(README\.md|LICENSE|\.github/renovate\.json5)$'
+
+# Charts an integration run must cover for the changes on this branch, against the merge base
+# with ct.yaml's target branch (committed, staged, unstaged and untracked changes alike):
+#   - only files under charts/ changed: the charts ct list-changed reports;
+#   - anything else changed (hack/, the flake, ct.yaml, workflows, the kind config, ...): every
+#     chart, because shared tooling can break a chart whose own files are untouched.
+# The reason for the choice goes to stderr; stdout is chart directories only, possibly empty.
+changed_charts() {
+  local base outside
+  base="$(cd "${REPO_ROOT}" && git merge-base origin/main HEAD)" || {
+    echo "cannot find a merge base with origin/main; fetch it, or run without --changed" >&2
+    return 1
+  }
+  outside="$(
+    cd "${REPO_ROOT}" &&
+      { git diff --name-only "${base}"; git ls-files --others --exclude-standard; } |
+      sort -u | grep -v '^charts/' | grep -Ev "${E2E_NEUTRAL_PATHS}" || true
+  )"
+  if [ -n "${outside}" ]; then
+    {
+      echo "files outside charts/ changed; selecting every chart:"
+      echo "${outside}" | head -n 10 | sed 's/^/    /'
+    } >&2
+    list_charts
+    return 0
+  fi
+  echo "nothing outside charts/ changed; selecting the charts ct list-changed reports" >&2
+  (cd "${REPO_ROOT}" && ct list-changed --config ct.yaml) |
+    while IFS= read -r chart; do
+      # A deleted chart is listed as changed but has nothing left to install.
+      if [ -f "${REPO_ROOT}/${chart}/Chart.yaml" ]; then echo "${REPO_ROOT}/${chart}"; fi
+    done
+}
+
 require_tools() {
   local missing=0 tool
   for tool in "$@"; do

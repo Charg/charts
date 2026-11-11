@@ -1,7 +1,53 @@
 #!/usr/bin/env bash
 # Integration suite: installs every ci/ scenario and asserts the claims a test pod cannot see.
+#
+# Usage: e2e.sh [--changed] [--list] [chart-dir...]
+#   (no charts)  every chart
+#   chart-dir    only those charts
+#   --changed    only the charts this branch changes, or every chart when files outside charts/
+#                change too (see changed_charts in tools.sh)
+#   --list       print the selected chart directories and exit, without touching a cluster
 
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
+
+changed=false
+list=false
+explicit=()
+for arg in "$@"; do
+  case "${arg}" in
+    --changed) changed=true ;;
+    --list) list=true ;;
+    -*)
+      echo "unknown option: ${arg}" >&2
+      exit 2
+      ;;
+    *) explicit+=("$(cd "${arg}" && pwd)") ;;
+  esac
+done
+
+if [ "${changed}" = true ] && [ "${#explicit[@]}" -gt 0 ]; then
+  echo "--changed and explicit charts are mutually exclusive" >&2
+  exit 2
+fi
+
+if [ "${changed}" = true ]; then
+  require_tools ct git
+  charts="$(changed_charts)"
+elif [ "${#explicit[@]}" -gt 0 ]; then
+  charts="$(printf '%s\n' "${explicit[@]}")"
+else
+  charts="$(list_charts)"
+fi
+
+if [ "${list}" = true ]; then
+  [ -z "${charts}" ] || echo "${charts}"
+  exit 0
+fi
+
+if [ -z "${charts}" ]; then
+  echo "no charts selected; nothing to install"
+  exit 0
+fi
 
 require_tools ct helm kubectl yq
 
@@ -48,7 +94,10 @@ while IFS= read -r chart; do
     --lint-conf "${ct_etc}/lintconf.yaml"
 
   kubectl delete namespace "${namespace}" --wait=false >/dev/null
-done < <(list_charts)
+done <<<"${charts}"
 
-echo "==> HA topology assertions"
-"${REPO_ROOT}/hack/ha-assert.sh"
+# The HA assertions install technitium-dns-server; they say nothing about any other chart.
+if grep -qx "${CHART_DIR}/technitium-dns-server" <<<"${charts}"; then
+  echo "==> HA topology assertions"
+  "${REPO_ROOT}/hack/ha-assert.sh"
+fi
