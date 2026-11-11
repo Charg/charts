@@ -32,6 +32,7 @@ just verify-images # every deployed image pinned by digest; Charg/containers ima
 just scan-images   # trivy CVE scan of every deployed image (--changed: only changed charts)
 just cluster-up    # create a kind cluster: 1 control-plane, 3 workers
 just e2e           # install every ci/ scenario under its chart's Pod Security level
+                   #   (--changed: only changed charts; --list: print the selection and stop)
 just cluster-down  # delete it
 ```
 
@@ -54,13 +55,22 @@ in a recipe or a CI workflow.
 
 Pull requests install nix and run the same recipes a developer runs locally: `just lint` and
 `just unit` in one job, `just verify-images` and `just scan-images --changed` in a second,
-`just cluster-up`, `just e2e` and `just cluster-down` in a third. Every job starts with no
+`just cluster-up`, `just e2e --changed` and `just cluster-down` in a third. Every job starts with no
 token permissions beyond reading the repository, and runs under
 [harden-runner](https://github.com/step-security/harden-runner) in audit mode, recording its
 outbound connections. If the
 host's firewall or CNI interferes with kind's pod network during a local integration run, use
 `just container-e2e` instead, which nests the cluster (and the same flake toolchain) inside a
 container.
+
+The integration job installs only the charts a pull request changes, as `ct list-changed`
+reports them against `main`. A change to anything outside `charts/` (`hack/`, the flake,
+`ct.yaml`, the workflows, the kind config) selects every chart instead, because shared tooling
+can break a chart whose own files are untouched; only `README.md`, `LICENSE` and
+`.github/renovate.json5` are exempt. When nothing is selected the job skips creating the cluster
+and still passes, so it stays usable as a required check. The HA topology assertions run only
+when `technitium-dns-server` is selected. Locally, `just e2e --changed --list` shows what CI
+would install.
 
 ## Releases
 

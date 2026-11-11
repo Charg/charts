@@ -23,9 +23,9 @@ cluster-up:
 cluster-down:
     hack/cluster-down.sh
 
-# Install every ci/ scenario into the cluster and assert HA topology.
-e2e:
-    hack/e2e.sh
+# Install ci/ scenarios (all charts, the named ones, or --changed) and assert HA topology.
+e2e *args:
+    hack/e2e.sh {{ args }}
 
 # Run cluster-up, e2e and cluster-down nested inside a container.
 container-e2e:

@@ -104,12 +104,29 @@ jobs:
           # Upstream Nix; see publish-chart.yaml.
           determinate: false
 
+      - name: Select charts to install
+        id: select
+        # Changed charts only, or every chart when shared tooling changed (see hack/tools.sh).
+        # An empty selection skips the cluster but still passes, so this job stays a usable
+        # required check.
+        run: |
+          charts="$(nix develop -c just e2e --changed --list)"
+          echo "selected charts:"
+          echo "${charts:-  (none)}"
+          if [ -n "${charts}" ]; then
+            echo "any=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "any=false" >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Create kind cluster
+        if: steps.select.outputs.any == 'true'
         run: nix develop -c just cluster-up
 
       - name: Run integration suite
-        run: nix develop -c just e2e
+        if: steps.select.outputs.any == 'true'
+        run: nix develop -c just e2e --changed
 
       - name: Delete kind cluster
-        if: always()
+        if: always() && steps.select.outputs.any == 'true'
         run: nix develop -c just cluster-down
