@@ -76,6 +76,14 @@
       automerge: true,
     },
     {
+      // No release age for images this project builds. Charg/containers already ages each upstream
+      // release before building it, and rebuilds the same tag for base-image CVE fixes, often more
+      // than once a week; a second wait here would hold those fixes back or, with each rebuild
+      // restarting the clock, never let them through.
+      matchDepNames: ["charg/containers/**"],
+      minimumReleaseAge: null,
+    },
+    {
       // The Technitium image is the payload. Surface it on its own so a DNS-server bump
       // is never buried in a group.
       matchDepNames: ["technitium/dns-server"],
