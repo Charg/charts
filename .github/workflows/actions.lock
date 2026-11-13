@@ -6,17 +6,17 @@ workflows:
     '.github/workflows/ci.yaml':
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'determinatesystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa'
-        - 'step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43'
+        - 'step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a'
     '.github/workflows/publish-chart.yaml':
         - 'actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8'
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'determinatesystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa'
         - 'softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3'
-        - 'step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43'
+        - 'step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a'
     '.github/workflows/release.yaml':
         - 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
         - 'determinatesystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa'
-        - 'step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43'
+        - 'step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a'
 dependencies:
     'actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8':
         ref: 'v4.2.2'
@@ -45,8 +45,8 @@ dependencies:
         commit: 'sha1-8a0cd651e5b2365bd640854a3fa5dfc70e4875f3'
         owner_id: 2242
         repo_id: 204253808
-    'step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43':
-        ref: 'v2.22.3'
-        commit: 'sha1-46b06cea07f9e64621fdf066ba77ac6915163d43'
+    'step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a':
+        ref: 'v2.22.4'
+        commit: 'sha1-1d88384fd173af6ecb012dfd0264a306b711241a'
         owner_id: 88700172
         repo_id: 422287306
