@@ -3,7 +3,7 @@ apiVersion: v2
 name: anki-sync-server
 description: Anki's self-hosted sync server, for syncing decks, review history and media between Anki clients.
 type: application
-version: 0.2.1
+version: 0.2.2
 appVersion: "26.09.4"
 keywords:
   - anki
@@ -26,4 +26,4 @@ annotations:
   # Digest of the appVersion image (the multi-arch index). Used whenever image.tag and
   # image.digest are both left empty, so a re-pushed upstream tag cannot change what a published
   # chart version deploys. Renovate updates it together with appVersion.
-  charg.github.io/image-digest: sha256:92479189399698f0af2668c0d0a7315eee2d9d407971f6d1379468d1567595e2
+  charg.github.io/image-digest: sha256:d85f776675b128cc1330e0ceaae2b2ef151349015ffbbedf78333fef8af53c91
