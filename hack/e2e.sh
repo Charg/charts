@@ -8,6 +8,7 @@
 #                change too (see changed_charts in tools.sh)
 #   --list       print the selected chart directories and exit, without touching a cluster
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 changed=false
@@ -87,6 +88,7 @@ while IFS= read -r chart; do
 
   ct lint-and-install \
     --config ct.yaml \
+    --check-version-increment \
     --charts "${chart}" \
     --namespace "${namespace}" \
     --release-label app.kubernetes.io/instance \

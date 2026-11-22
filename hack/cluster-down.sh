@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deletes the kind cluster. Safe to run when no cluster exists.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools kind

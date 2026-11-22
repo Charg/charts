@@ -4,6 +4,7 @@
 # and, for signing, is running with a GitHub Actions OIDC token available (id-token: write);
 # cosign picks that up ambiently.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools helm cosign jq yq

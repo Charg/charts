@@ -8,6 +8,7 @@
 # Third-party images (Docker Hub upstreams) mostly publish no signatures to check; their digest
 # pin plus scan-images.sh is what covers them.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools helm yq cosign

@@ -6,6 +6,7 @@
 # Counting DISTINCT node names is the point: it is the only assertion that catches anti-affinity
 # silently regressing from required to preferred.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools helm kubectl yq

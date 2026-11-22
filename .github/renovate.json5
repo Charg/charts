@@ -1,52 +1,21 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Shared policy (7-day release age, automerge, nix lock maintenance, actions pinning) and each
+  // flavour's rules live in Charg/template. Add only this repo's packageRules and customManagers here.
   extends: [
-    "config:recommended",
-    // Group all non-major digest/action bumps into as few PRs as reasonable.
-    ":semanticCommits",
+    "github>Charg/template//renovate/default.json5",
+    "github>Charg/template//renovate/helm-charts.json5",
     ":semanticCommitScopeDisabled",
   ],
 
-  // Match the repo's commit style (feat/fix/chore, no scope noise).
-  semanticCommitType: "chore",
-
-  // ghcr publishing is triggered by pushes to main that touch charts/**. Keep Renovate
-  // branches out of that path except when it genuinely bumps a chart, and let CI gate merges.
-  labels: ["dependencies"],
   rangeStrategy: "pin",
-  configMigration: true,
 
-  // Keep in sync with the gh-actions-lock version used locally.
-  constraints: {
-    ghActionsLock: "v0.4.1",
-  },
-
-  // Merge without review once CI is green, via GitHub's native auto-merge (main's ruleset
-  // requires the ci checks). Nobody looks at these PRs first, so let each release age a week:
-  // upstream yanks or re-tags a bad release in that window instead of it reaching ghcr.
-  automerge: true,
-  automergeType: "pr",
-  platformAutomerge: true,
-  minimumReleaseAge: "7 days",
-
-  // Flake inputs (nixpkgs) tracked via the lockfile. Renovate re-locks against the pinned
-  // nixos-26.05 branch ref rather than moving the ref itself.
-  nix: {
-    enabled: true,
-  },
   lockFileMaintenance: {
-    enabled: true,
-    schedule: ["before 6am on monday"],
     // Re-locking nixpkgs swaps the whole release toolchain; see the nix package rule below.
     automerge: false,
   },
 
   packageRules: [
-    {
-      // Majors can change values or storage layout; those still wait for a human.
-      matchUpdateTypes: ["major"],
-      automerge: false,
-    },
     {
       // GitHub Actions are SHA-pinned with a version comment; keep that pinning on update. They
       // run inside the job that signs releases, so a compromised action release is a signed
