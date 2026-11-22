@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # helm-charts flavour, for every chart at charts/<name>/: chart-testing's lint (helm lint, Chart.yaml
 # schema, yamllint of Chart.yaml and values), then kubeconform over the manifests each chart renders
-# with values.yaml and with each ci/*-values.yaml.
+# with each of its ci/*-values.yaml, or with values.yaml when it has none.
 
 # shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../tools.sh"
@@ -36,8 +36,11 @@ kubeconform_args=(
   -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 )
 for chart in "${charts[@]}"; do
-  for values in "${chart}/values.yaml" "${chart}"/ci/*-values.yaml; do
-    [ -e "${values}" ] || continue
+  # A chart's ci/*-values.yaml scenarios, as ct uses them, or values.yaml when it has none: a chart
+  # may require a value and deliberately fail to render from its defaults.
+  scenarios=("${chart}"/ci/*-values.yaml)
+  [ -e "${scenarios[0]}" ] || scenarios=("${chart}/values.yaml")
+  for values in "${scenarios[@]}"; do
     printf '    %s\n' "${values}" >&2
     helm template lint "${chart}" --values "${values}" | kubeconform "${kubeconform_args[@]}"
   done

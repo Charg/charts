@@ -1,5 +1,5 @@
 # Changes here will be overwritten by Copier; NEVER EDIT MANUALLY
-_commit: 12199b0
+_commit: 244ff03
 _src_path: gh:Charg/template
 description: Helm charts published to ghcr.io/charg/charts
 flavours:

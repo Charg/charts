@@ -40,8 +40,8 @@
 - Charts live at `charts/<name>/`. helm 3 (with helm-unittest), chart-testing and kubeconform come
   from the flake, which stays on nixos-26.05: nixos-unstable ships helm 4.
 - `just lint` runs `ct lint --all` (`ct.yaml`) and kubeconform over the manifests each chart renders
-  with `values.yaml` and each `ci/*-values.yaml` (`hack/lint.d/helm-charts.sh`). yamllint skips
-  `charts/*/templates/`, which is Go templates rather than YAML.
+  with each `ci/*-values.yaml`, or `values.yaml` when it has none (`hack/lint.d/helm-charts.sh`).
+  yamllint skips `charts/*/templates/`, which is Go templates rather than YAML.
 - Renovate leaves digest-only bumps of images (a tag re-pushed upstream) for a human.
 
 ## Template
