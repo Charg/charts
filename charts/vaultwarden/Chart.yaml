@@ -3,7 +3,7 @@ apiVersion: v2
 name: vaultwarden
 description: Unofficial Bitwarden-compatible password manager server with the web vault, admin panel, SSO and SMTP.
 type: application
-version: 0.3.3
+version: 0.3.4
 appVersion: "1.37.5"
 keywords:
   - vaultwarden
@@ -26,4 +26,4 @@ annotations:
   # Digest of the appVersion image (the multi-arch index). Used whenever image.tag and
   # image.digest are both left empty, so a re-pushed upstream tag cannot change what a published
   # chart version deploys. Renovate updates it together with appVersion.
-  charg.github.io/image-digest: sha256:bbb2b8818d7e1162ee4d8f3b87c8f79d1e6e1b50376fcef965a80ba288fe6dd1
+  charg.github.io/image-digest: sha256:ab2c80cff2ff4bea264d5f64a82237e0bf4b44be89d30f6048b17a49bba4d11c
