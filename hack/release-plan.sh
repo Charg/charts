@@ -7,6 +7,7 @@
 # unrecoverable failure mode here, so anything short of a definitive "not found" from the
 # registry (a permission error, a network blip, a 5xx) aborts the whole run instead of guessing.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools helm curl

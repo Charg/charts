@@ -11,12 +11,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Nothing by default; each job asks for exactly what it uses.
 permissions: {}
 
 jobs:
-  lint-unit:
-    name: lint and unit
+  lint:
+    name: lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -31,20 +30,35 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # ct lint diffs changed charts against the target branch; a shallow
-          # checkout has no history for it to diff against.
+          persist-credentials: false
+          # ct lint diffs changed charts against the target branch (hack/lint.d/charts.sh); a
+          # shallow checkout has no history for it to diff against.
           fetch-depth: 0
-          # Nothing pushes back to git, so the token does not need to outlive this step.
+
+      - name: Install nix
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+
+      - name: Lint
+        run: nix develop -c just lint
+
+  unit:
+    name: unit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           persist-credentials: false
 
       - name: Install nix
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        with:
-          # Upstream Nix; see publish-chart.yaml.
-          determinate: false
-
-      - name: Lint charts
-        run: nix develop -c just lint
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
 
       - name: Run unit tests
         run: nix develop -c just unit
@@ -68,10 +82,7 @@ jobs:
           persist-credentials: false
 
       - name: Install nix
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        with:
-          # Upstream Nix; see publish-chart.yaml.
-          determinate: false
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
 
       - name: Verify image pins and signatures
         run: nix develop -c just verify-images
@@ -99,10 +110,7 @@ jobs:
           persist-credentials: false
 
       - name: Install nix
-        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
-        with:
-          # Upstream Nix; see publish-chart.yaml.
-          determinate: false
+        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
 
       - name: Select charts to install
         id: select
@@ -130,3 +138,22 @@ jobs:
       - name: Delete kind cluster
         if: always() && steps.select.outputs.any == 'true'
         run: nix develop -c just cluster-down
+
+  # The one check main's ruleset requires, so adding or renaming jobs never touches the ruleset.
+  # Add new jobs to `needs`.
+  ci:
+    name: ci
+    if: always()
+    needs: [lint, unit, images, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every job to succeed or be skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in ${RESULTS}; do
+            case "${result}" in
+              success | skipped) ;;
+              *) echo "a required job ended with: ${result}" >&2; exit 1 ;;
+            esac
+          done

@@ -9,6 +9,7 @@
 # cosign unauthenticated, so pushing the signature layer fails even though the chart push
 # succeeded. Log both in against the same credentials.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools helm cosign

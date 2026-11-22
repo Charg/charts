@@ -1,8 +1,6 @@
 {
-  description = "Helm charts: development toolchain and CI environment";
+  description = "Helm charts published to ghcr.io/charg/charts";
 
-  # Stable channel: pins helm on the 3.x line consumers render with, not the 4.x that
-  # nixpkgs-unstable has moved to and that chart-testing's bundled libraries predate.
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
   outputs =
@@ -17,43 +15,45 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
-      devShells = forAllSystems (
-        pkgs:
-        let
-          # helm-unittest is a helm plugin, not a standalone binary; wrapHelm bakes it into
-          # HELM_PLUGINS so `helm unittest` resolves without a separate install step.
-          helm = pkgs.wrapHelm pkgs.kubernetes-helm {
-            plugins = [ pkgs.kubernetes-helmPlugins.helm-unittest ];
-          };
-        in
-        {
-          default = pkgs.mkShellNoCC {
-            packages = [
-              helm
-              pkgs.chart-testing # ct
-              pkgs.kubeconform
-              pkgs.kind
-              pkgs.kubectl
-              pkgs.yamllint
-              pkgs.yamale
-              pkgs.cosign
-              pkgs.just
-              # Security checks: misconfiguration and CVE scanning of rendered manifests and the
-              # images they deploy, and workflow linting.
-              pkgs.trivy
-              pkgs.zizmor
-              pkgs.actionlint
-              # Structured queries over rendered manifests (image lists, Chart.yaml annotations).
-              pkgs.yq-go
-              # Used by the scripts directly: registry probing, JSON assembly, the
-              # nested-container e2e path, and source-tree copies.
-              pkgs.git
-              pkgs.curl
-              pkgs.jq
-              pkgs.docker-client
-            ];
-          };
-        }
-      );
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShellNoCC {
+          packages = [
+            # Task runner and git hooks.
+            pkgs.just
+            pkgs.prek
+            # Lint (hack/lint.sh).
+            pkgs.actionlint
+            pkgs.nixfmt
+            pkgs.shellcheck
+            pkgs.yamllint
+            pkgs.zizmor
+            # helm-charts flavour (hack/lint.d/helm-charts.sh). helm-unittest is a helm plugin;
+            # wrapHelm puts it on HELM_PLUGINS so `helm unittest` works without an install step.
+            (pkgs.wrapHelm pkgs.kubernetes-helm {
+              plugins = [ pkgs.kubernetes-helmPlugins.helm-unittest ];
+            })
+            pkgs.chart-testing
+            pkgs.yamale
+            pkgs.kubeconform
+            # Used by the scripts directly.
+            pkgs.git
+            # e2e: kind clusters, and the nested-container path.
+            pkgs.kind
+            pkgs.kubectl
+            pkgs.docker-client
+            # Release signing, and misconfiguration and CVE scanning of rendered manifests and the
+            # images they deploy.
+            pkgs.cosign
+            pkgs.trivy
+            # Structured queries over rendered manifests (image lists, Chart.yaml annotations),
+            # registry probing and JSON assembly.
+            pkgs.yq-go
+            pkgs.curl
+            pkgs.jq
+          ];
+        };
+      });
+
+      formatter = forAllSystems (pkgs: pkgs.nixfmt);
     };
 }

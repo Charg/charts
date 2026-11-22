@@ -1,15 +1,48 @@
 #!/usr/bin/env bash
-# Shared shell setup sourced by every other script in hack/.
+# Shared shell setup sourced by every other script in hack/:
 #
-# Tool versions are no longer pinned here: the nix flake (flake.nix + flake.lock) is the single
-# source of truth for the toolchain, and every script is expected to run inside its dev shell
-# (`nix develop`, or `nix develop -c just <target>`). Bumping a tool is a flake.lock change.
+#   source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
+#
+# Tool versions are not pinned here: the nix flake (flake.nix + flake.lock) is the single source
+# of truth, and every script expects to run inside its dev shell (`nix develop`, or
+# `nix develop -c just <recipe>`).
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export REPO_ROOT
+
+# Progress message on stderr.
+log() {
+  printf '==> %s\n' "$*" >&2
+}
+
+# Print an error and exit non-zero.
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+# Fail unless every named tool is on PATH.
+require_tools() {
+  local missing=() tool
+  for tool in "$@"; do
+    command -v "${tool}" >/dev/null 2>&1 || missing+=("${tool}")
+  done
+  if ((${#missing[@]} > 0)); then
+    die "missing tools: ${missing[*]} (run inside the dev shell: nix develop)"
+  fi
+}
+
+# Files tracked or not yet added (but not ignored) that match the given pathspecs, NUL-separated.
+repo_files() {
+  git -C "${REPO_ROOT}" ls-files -z --cached --others --exclude-standard -- "$@"
+}
+
+# --- Helm charts (project helpers) ---
+
 KIND_CLUSTER_NAME="${KIND_CLUSTER_NAME:-charts-e2e}"
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART_DIR="${REPO_ROOT}/charts"
 
 # chart-testing does not discover its bundled lint config on its own; it lives next to the ct
@@ -70,20 +103,6 @@ changed_charts() {
     done
 }
 
-require_tools() {
-  local missing=0 tool
-  for tool in "$@"; do
-    command -v "${tool}" >/dev/null 2>&1 || {
-      echo "missing tool: ${tool}" >&2
-      missing=1
-    }
-  done
-  if [ "${missing}" -ne 0 ]; then
-    echo "enter the dev shell first: 'nix develop' (or run the target as 'nix develop -c just <target>')" >&2
-    return 1
-  fi
-}
-
 # The ci/*-values.yaml scenarios of a chart, one per line, sorted. Falls back to values.yaml for
 # a chart with no scenarios. A chart may require a value (anki-sync-server needs a user) and
 # deliberately fail to render without it, which is why the bare defaults are not always usable.
@@ -132,4 +151,5 @@ chart_images() {
 }
 
 # in-toto predicate type of the attestation listing the images a published chart deploys.
+# shellcheck disable=SC2034 # used by release-publish.sh, which sources this file
 IMAGES_PREDICATE_TYPE="https://charg.github.io/attestations/chart-images/v1"

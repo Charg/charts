@@ -7,6 +7,7 @@
 # A chart accepts a specific finding, with the reason and an expiry, in its own
 # .trivyignore.yaml (the same file the misconfiguration scan in lint.sh reads).
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools helm yq trivy

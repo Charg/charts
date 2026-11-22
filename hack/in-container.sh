@@ -12,6 +12,7 @@
 # recipes directly. There is one flake and one set of recipes either way, so the paths cannot
 # drift.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools docker

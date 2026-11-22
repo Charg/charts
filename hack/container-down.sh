@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Removes the nested integration container and everything inside it. Safe to run when absent.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools docker

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # helm-unittest across every chart in the repo.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools helm

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Creates the throwaway kind cluster used by the integration suite.
 
+# shellcheck source=hack/tools.sh
 source "$(dirname "${BASH_SOURCE[0]}")/tools.sh"
 
 require_tools kind kubectl
