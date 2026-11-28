@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
 
       - name: Lint
         run: nix develop -c just lint
@@ -58,7 +58,7 @@ jobs:
           persist-credentials: false
 
       - name: Install nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
 
       - name: Run unit tests
         run: nix develop -c just unit
@@ -82,7 +82,7 @@ jobs:
           persist-credentials: false
 
       - name: Install nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
 
       - name: Verify image pins and signatures
         run: nix develop -c just verify-images
@@ -110,7 +110,7 @@ jobs:
           persist-credentials: false
 
       - name: Install nix
-        uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+        uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
 
       - name: Select charts to install
         id: select
